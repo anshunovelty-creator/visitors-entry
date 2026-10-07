@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4. Reception console</title>
+<style>
+    /*
+     * BRAINSTORM COMPANION FRAME TEMPLATE
+     *
+     * This template provides a consistent frame with:
+     * - OS-aware light/dark theming
+     * - Fixed header and selection indicator bar
+     * - Scrollable main content area
+     * - CSS helpers for common UI patterns
+     *
+     * Content is injected via placeholder comment in #claude-content.
+     */
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+
+    /* ===== THEME VARIABLES ===== */
+    :root {
+      --bg-primary: #f5f5f7;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #e5e5e7;
+      --border: #d1d1d6;
+      --text-primary: #1d1d1f;
+      --text-secondary: #86868b;
+      --text-tertiary: #aeaeb2;
+      --accent: #0071e3;
+      --accent-hover: #0077ed;
+      --success: #34c759;
+      --warning: #ff9f0a;
+      --error: #ff3b30;
+      --selected-bg: #e8f4fd;
+      --selected-border: #0071e3;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #1d1d1f;
+        --bg-secondary: #2d2d2f;
+        --bg-tertiary: #3d3d3f;
+        --border: #424245;
+        --text-primary: #f5f5f7;
+        --text-secondary: #86868b;
+        --text-tertiary: #636366;
+        --accent: #0a84ff;
+        --accent-hover: #409cff;
+        --selected-bg: rgba(10, 132, 255, 0.15);
+        --selected-border: #0a84ff;
+      }
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    /* ===== FRAME STRUCTURE ===== */
+    .header {
+      background: var(--bg-secondary);
+      padding: 0.5rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .header h1 { font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); }
+    .header .status { font-size: 0.7rem; color: var(--success); display: flex; align-items: center; gap: 0.4rem; }
+    .header .status::before { content: ''; width: 6px; height: 6px; background: var(--success); border-radius: 50%; }
+
+    .main { flex: 1; overflow-y: auto; }
+    #claude-content { padding: 2rem; min-height: 100%; }
+
+    .indicator-bar {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      padding: 0.5rem 1.5rem;
+      flex-shrink: 0;
+      text-align: center;
+    }
+    .indicator-bar span {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    .indicator-bar .selected-text {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    /* ===== TYPOGRAPHY ===== */
+    h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; }
+    h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; }
+    .section { margin-bottom: 2rem; }
+    .label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+
+    /* ===== OPTIONS (for A/B/C choices) ===== */
+    .options { display: flex; flex-direction: column; gap: 0.75rem; }
+    .option {
+      background: var(--bg-secondary);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+    .option:hover { border-color: var(--accent); }
+    .option.selected { background: var(--selected-bg); border-color: var(--selected-border); }
+    .option .letter {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      width: 1.75rem; height: 1.75rem;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 600; font-size: 0.85rem; flex-shrink: 0;
+    }
+    .option.selected .letter { background: var(--accent); color: white; }
+    .option .content { flex: 1; }
+    .option .content h3 { font-size: 0.95rem; margin-bottom: 0.15rem; }
+    .option .content p { color: var(--text-secondary); font-size: 0.85rem; margin: 0; }
+
+    /* ===== CARDS (for showing designs/mockups) ===== */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .card.selected { border-color: var(--selected-border); border-width: 2px; }
+    .card-image { background: var(--bg-tertiary); aspect-ratio: 16/10; display: flex; align-items: center; justify-content: center; }
+    .card-body { padding: 1rem; }
+    .card-body h3 { margin-bottom: 0.25rem; }
+    .card-body p { color: var(--text-secondary); font-size: 0.85rem; }
+
+    /* ===== MOCKUP CONTAINER ===== */
+    .mockup {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 1.5rem;
+    }
+    .mockup-header {
+      background: var(--bg-tertiary);
+      padding: 0.5rem 1rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+    .mockup-body { padding: 1.5rem; }
+
+    /* ===== SPLIT VIEW (side-by-side comparison) ===== */
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
+
+    /* ===== PROS/CONS ===== */
+    .pros-cons { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+    .pros, .cons { background: var(--bg-secondary); border-radius: 8px; padding: 1rem; }
+    .pros h4 { color: var(--success); font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .cons h4 { color: var(--error); font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .pros ul, .cons ul { margin-left: 1.25rem; font-size: 0.85rem; color: var(--text-secondary); }
+    .pros li, .cons li { margin-bottom: 0.25rem; }
+
+    /* ===== PLACEHOLDER (for mockup areas) ===== */
+    .placeholder {
+      background: var(--bg-tertiary);
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 2rem;
+      text-align: center;
+      color: var(--text-tertiary);
+    }
+
+    /* ===== INLINE MOCKUP ELEMENTS ===== */
+    .mock-nav { background: var(--accent); color: white; padding: 0.75rem 1rem; display: flex; gap: 1.5rem; font-size: 0.9rem; }
+    .mock-sidebar { background: var(--bg-tertiary); padding: 1rem; min-width: 180px; }
+    .mock-content { padding: 1.5rem; flex: 1; }
+    .mock-button { background: var(--accent); color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; }
+    .mock-input { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; width: 100%; }
+  
+.header a { color: inherit; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="header"><h1><a href="index.html">Novelty Labels visitor system: design mockups</a></h1><h1>4. Reception console</h1></div>
+<div class="main"><div id="claude-content">
+<link rel="stylesheet" href="kit.css">
+<style>
+/* ---------- shared bits ---------- */
+svg.face { fill: rgba(14,31,24,.30); stroke: none; }
+.thumb { display: grid; place-items: end center; overflow: hidden; flex: none; background: #D9E4DE; }
+.thumb svg { width: 86%; height: 86%; }
+.t2 { background: #E8DFD3; } .t3 { background: #DCE1EA; } .t4 { background: #E9E0E8; } .t5 { background: #DFE7D6; } .t6 { background: #E4E1DA; }
+
+/* ---------- desktop console ---------- */
+.browser { background: #E7E7EA; border-radius: 14px; overflow: hidden; box-shadow: 0 14px 40px rgba(0,0,0,.16); margin-bottom: 40px; }
+.bbar { height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 14px; background: #E7E7EA; }
+.bbar i { width: 11px; height: 11px; border-radius: 50%; background: #CFCFD4; }
+.bbar .url { margin-left: 16px; flex: 1; max-width: 460px; height: 22px; border-radius: 6px; background: #fff; font-size: 11.5px; color: #6B6B70; display: flex; align-items: center; padding: 0 10px; }
+.dkscr { container-type: inline-size; aspect-ratio: 1440 / 940; --u: calc(100cqw / 1440); overflow: hidden; }
+.dkscr * { box-sizing: border-box; }
+.dkscr p, .dkscr h1, .dkscr h2 { margin: 0; }
+.dkscr svg.i { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.dk { height: 100%; display: grid; grid-template-columns: calc(var(--u)*230) 1fr; background: #FAFAF7; color: #0E1F18; font-family: Inter, sans-serif; font-size: calc(var(--u)*14); }
+.side { background: #fff; border-right: calc(var(--u)*1) solid #E3EAE6; padding: calc(var(--u)*24) calc(var(--u)*16); display: flex; flex-direction: column; }
+.side .logo { height: calc(var(--u)*40); margin: 0 calc(var(--u)*8) calc(var(--u)*28); align-self: flex-start; }
+.side a { display: flex; align-items: center; gap: calc(var(--u)*12); padding: calc(var(--u)*10) calc(var(--u)*12); border-radius: calc(var(--u)*10); color: #33463D; font-weight: 500; margin-bottom: calc(var(--u)*2); }
+.side a svg.i { width: calc(var(--u)*19); height: calc(var(--u)*19); color: #6B7A72; }
+.side a.on { background: #EAF3EE; color: #10553F; font-weight: 600; }
+.side a.on svg.i { color: #10553F; }
+.side .badge { margin-left: auto; background: #D97706; color: #fff; font-size: calc(var(--u)*11.5); font-weight: 700; min-width: calc(var(--u)*20); height: calc(var(--u)*20); border-radius: 99px; display: grid; place-items: center; padding: 0 calc(var(--u)*6); }
+.side .cnt { margin-left: auto; color: #6B7A72; font-size: calc(var(--u)*12.5); }
+.side .navlabel { font-family: Saira; font-weight: 600; font-size: calc(var(--u)*11.5); letter-spacing: .14em; text-transform: uppercase; color: #8A9891; margin: calc(var(--u)*22) calc(var(--u)*12) calc(var(--u)*8); }
+.side .me { margin-top: auto; display: flex; align-items: center; gap: calc(var(--u)*10); padding: calc(var(--u)*12); border-top: calc(var(--u)*1) solid #EEF2EF; }
+.side .me .av, .dk .av { width: calc(var(--u)*34); height: calc(var(--u)*34); border-radius: 50%; background: #EAF3EE; color: #10553F; display: grid; place-items: center; font-family: Saira; font-weight: 600; font-size: calc(var(--u)*13); flex: none; }
+.side .me b { display: block; font-size: calc(var(--u)*13.5); }
+.side .me span { color: #6B7A72; font-size: calc(var(--u)*12.5); }
+.dmain { padding: calc(var(--u)*26) calc(var(--u)*32); display: flex; flex-direction: column; gap: calc(var(--u)*20); min-width: 0; }
+.topbar { display: flex; justify-content: space-between; align-items: center; }
+.topbar h1 { font-family: Saira; font-weight: 600; font-size: calc(var(--u)*30); line-height: 1.1; }
+.topbar p { color: #5B6B63; font-size: calc(var(--u)*13.5); display: flex; align-items: center; gap: calc(var(--u)*8); margin-top: calc(var(--u)*2); }
+.live { width: calc(var(--u)*8); height: calc(var(--u)*8); border-radius: 50%; background: #16A34A; box-shadow: 0 0 0 calc(var(--u)*4) rgba(22,163,74,.15); }
+.tools { display: flex; gap: calc(var(--u)*12); align-items: center; }
+.search { width: calc(var(--u)*340); height: calc(var(--u)*42); border: calc(var(--u)*1.5) solid #DCE5E0; border-radius: calc(var(--u)*10); background: #fff; display: flex; align-items: center; gap: calc(var(--u)*10); padding: 0 calc(var(--u)*14); color: #8A9891; }
+.search svg.i { width: calc(var(--u)*18); height: calc(var(--u)*18); }
+.search kbd { margin-left: auto; font-family: Inter; font-size: calc(var(--u)*11.5); border: calc(var(--u)*1) solid #DCE5E0; border-radius: calc(var(--u)*5); padding: 0 calc(var(--u)*6); color: #8A9891; }
+.pbtn { height: calc(var(--u)*42); padding: 0 calc(var(--u)*18); border-radius: calc(var(--u)*10); background: #10553F; color: #fff; display: inline-flex; align-items: center; gap: calc(var(--u)*8); font-family: Saira; font-weight: 600; font-size: calc(var(--u)*15.5); white-space: nowrap; }
+.pbtn svg.i { width: calc(var(--u)*18); height: calc(var(--u)*18); stroke-width: 2.4; }
+.gbtn { height: calc(var(--u)*42); padding: 0 calc(var(--u)*16); border-radius: calc(var(--u)*10); background: #fff; border: calc(var(--u)*1.5) solid #CBD8D1; color: #0E1F18; display: inline-flex; align-items: center; gap: calc(var(--u)*8); font-weight: 600; font-size: calc(var(--u)*13.5); white-space: nowrap; }
+.pbtn.sm, .gbtn.sm { height: calc(var(--u)*36); font-size: calc(var(--u)*14); padding: 0 calc(var(--u)*14); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: calc(var(--u)*14); }
+.stat { background: #fff; border: calc(var(--u)*1) solid #E3EAE6; border-radius: calc(var(--u)*14); padding: calc(var(--u)*16) calc(var(--u)*18); }
+.stat span { color: #5B6B63; font-size: calc(var(--u)*13); font-weight: 500; }
+.stat b { display: block; font-family: Saira; font-weight: 600; font-size: calc(var(--u)*34); line-height: 1.1; margin-top: calc(var(--u)*4); font-variant-numeric: tabular-nums; }
+.stat em { font-style: normal; color: #6B7A72; font-size: calc(var(--u)*12.5); }
+.stat.amber { background: #FFFBEB; border-color: #F6DFA4; }
+.stat.amber b { color: #B45309; }
+.arriving { background: #FFFBEB; border: calc(var(--u)*1.5) solid #F6DFA4; border-radius: calc(var(--u)*16); padding: calc(var(--u)*16) calc(var(--u)*18); }
+.sh { display: flex; align-items: baseline; gap: calc(var(--u)*12); margin-bottom: calc(var(--u)*12); }
+.sh h2 { font-family: Saira; font-weight: 600; font-size: calc(var(--u)*18); display: flex; align-items: center; gap: calc(var(--u)*8); }
+.sh p { color: #7C5A12; font-size: calc(var(--u)*13); }
+.adot { width: calc(var(--u)*9); height: calc(var(--u)*9); border-radius: 50%; background: #D97706; box-shadow: 0 0 0 calc(var(--u)*4) rgba(217,119,6,.18); }
+.acards { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--u)*12); }
+.acard { background: #fff; border: calc(var(--u)*1) solid #F0E2BE; border-radius: calc(var(--u)*12); padding: calc(var(--u)*12); display: flex; align-items: center; gap: calc(var(--u)*14); }
+.acard .thumb { width: calc(var(--u)*60); height: calc(var(--u)*60); border-radius: calc(var(--u)*10); }
+.ai { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: calc(var(--u)*2); }
+.ai b { font-size: calc(var(--u)*15.5); }
+.ai span { color: #5B6B63; font-size: calc(var(--u)*13); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai strong { color: #0E1F18; font-weight: 600; }
+.code-chip { font-family: Saira; font-weight: 700; color: #10553F; background: #EAF3EE; padding: 0 calc(var(--u)*7); border-radius: calc(var(--u)*5); letter-spacing: .06em; }
+.aact { display: flex; gap: calc(var(--u)*8); }
+.plus { font-size: calc(var(--u)*11.5); font-weight: 700; color: #10553F; background: #EAF3EE; padding: calc(var(--u)*1) calc(var(--u)*7); border-radius: 99px; margin-left: calc(var(--u)*6); vertical-align: middle; }
+.cols { display: grid; grid-template-columns: 1fr calc(var(--u)*296); gap: calc(var(--u)*20); flex: 1; min-height: 0; }
+.panel { background: #fff; border: calc(var(--u)*1) solid #E3EAE6; border-radius: calc(var(--u)*16); overflow: hidden; display: flex; flex-direction: column; }
+.ph2 { display: flex; justify-content: space-between; align-items: center; padding: calc(var(--u)*14) calc(var(--u)*18); border-bottom: calc(var(--u)*1) solid #EEF2EF; }
+.ph2 h2 { font-family: Saira; font-weight: 600; font-size: calc(var(--u)*17); }
+.muted { color: #6B7A72; font-size: calc(var(--u)*13); }
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th { text-align: left; font-size: calc(var(--u)*11.5); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #8A9891; padding: calc(var(--u)*10) calc(var(--u)*10); background: #FBFCFB; border-bottom: calc(var(--u)*1) solid #EEF2EF; }
+.tbl td { padding: calc(var(--u)*9) calc(var(--u)*10); border-bottom: calc(var(--u)*1) solid #F1F4F2; font-size: calc(var(--u)*13.5); vertical-align: middle; white-space: nowrap; }
+.tbl tr.warn td { background: #FFFBEB; }
+.vis { display: flex; align-items: center; gap: calc(var(--u)*12); }
+.vis .thumb { width: calc(var(--u)*38); height: calc(var(--u)*38); border-radius: calc(var(--u)*8); }
+.vis b { display: block; font-size: calc(var(--u)*14); }
+.vis span { color: #6B7A72; font-size: calc(var(--u)*12.5); }
+.tag { display: inline-flex; align-items: center; gap: calc(var(--u)*5); font-size: calc(var(--u)*12); font-weight: 600; padding: calc(var(--u)*3) calc(var(--u)*9); border-radius: 99px; background: #F0F3F1; color: #4A5B53; }
+.tag.desk { background: #EAF3EE; color: #10553F; }
+.tag.own { background: #FEF3C7; color: #92400E; }
+.tag.inv { background: #E8EEF9; color: #2B4C8C; }
+.ok { color: #10553F; font-weight: 600; display: inline-flex; align-items: center; gap: calc(var(--u)*5); }
+.ok svg.i, .bad svg.i, .stale svg.i { width: calc(var(--u)*15); height: calc(var(--u)*15); stroke-width: 2.5; }
+.bad { color: #B42318; font-weight: 600; display: inline-flex; align-items: center; gap: calc(var(--u)*5); }
+.bad u { text-decoration: none; border-bottom: calc(var(--u)*1.5) solid currentColor; margin-left: calc(var(--u)*4); }
+.stale { color: #B45309; font-weight: 600; display: inline-flex; align-items: center; gap: calc(var(--u)*5); }
+.lnk { color: #10553F; font-weight: 600; font-size: calc(var(--u)*13); border: calc(var(--u)*1.5) solid #CBD8D1; border-radius: calc(var(--u)*8); padding: calc(var(--u)*5) calc(var(--u)*10); background: #fff; }
+.exp-row { display: flex; gap: calc(var(--u)*14); padding: calc(var(--u)*12) calc(var(--u)*18); border-bottom: calc(var(--u)*1) solid #F1F4F2; align-items: center; }
+.exp-row .tm { font-family: Saira; font-weight: 600; font-size: calc(var(--u)*15); width: calc(var(--u)*46); font-variant-numeric: tabular-nums; }
+.exp-row .who2 { flex: 1; min-width: 0; }
+.exp-row b { display: block; font-size: calc(var(--u)*14); white-space: nowrap; }
+.exp-row span { color: #6B7A72; font-size: calc(var(--u)*12.5); }
+.exp-row.next { background: #F6FAF8; }
+.exp-row.next .tm { color: #10553F; }
+
+/* ---------- phone console additions ---------- */
+.mchips { display: flex; gap: calc(var(--u)*6); flex-wrap: wrap; margin-top: calc(var(--u)*8); }
+.mchip { font-size: calc(var(--u)*12.5); font-weight: 600; padding: calc(var(--u)*5) calc(var(--u)*10); border-radius: 99px; background: #F0F3F1; color: #33463D; }
+.mchip.amber { background: #FEF3C7; color: #92400E; }
+.sub { display: flex; align-items: center; gap: calc(var(--u)*8); font-family: Saira; font-weight: 600; font-size: calc(var(--u)*16); margin: calc(var(--u)*18) 0 calc(var(--u)*10); }
+.sub .adot { width: calc(var(--u)*8); height: calc(var(--u)*8); }
+.sub em { font-style: normal; font-family: Inter; font-weight: 500; font-size: calc(var(--u)*12.5); color: #6B7A72; margin-left: auto; }
+.mac { background: #FFFBEB; border: calc(var(--u)*1.5) solid #F6DFA4; border-radius: calc(var(--u)*14); padding: calc(var(--u)*12); }
+.mac .top { display: flex; gap: calc(var(--u)*12); align-items: center; }
+.mac .thumb { width: calc(var(--u)*52); height: calc(var(--u)*52); border-radius: calc(var(--u)*10); }
+.mac .ai b { font-size: calc(var(--u)*15.5); }
+.mac .ai span { font-size: calc(var(--u)*12.5); white-space: normal; }
+.mac .btns { display: grid; grid-template-columns: 1.4fr 1fr; gap: calc(var(--u)*8); margin-top: calc(var(--u)*12); }
+.mbtn { height: calc(var(--u)*46); border-radius: calc(var(--u)*11); display: flex; align-items: center; justify-content: center; gap: calc(var(--u)*6); font-family: Saira; font-weight: 600; font-size: calc(var(--u)*16); background: #10553F; color: #fff; }
+.mbtn.g { background: #fff; color: #0E1F18; border: calc(var(--u)*1.5) solid #CBD8D1; font-family: Inter; font-size: calc(var(--u)*14); }
+.mbtn svg.i { width: calc(var(--u)*18); height: calc(var(--u)*18); stroke-width: 2.4; }
+.mrow { display: flex; align-items: center; gap: calc(var(--u)*12); padding: calc(var(--u)*10) 0; border-bottom: calc(var(--u)*1) solid #EEF2EF; }
+.mrow .thumb { width: calc(var(--u)*42); height: calc(var(--u)*42); border-radius: calc(var(--u)*9); }
+.mrow .ai b { font-size: calc(var(--u)*14.5); }
+.mrow .ai span { font-size: calc(var(--u)*12.5); }
+.mrow .dots { width: calc(var(--u)*36); height: calc(var(--u)*36); display: grid; place-items: center; color: #6B7A72; }
+.mrow .dots svg.i { width: calc(var(--u)*20); height: calc(var(--u)*20); }
+.mrow .warnico { color: #B42318; width: calc(var(--u)*16); height: calc(var(--u)*16); }
+.clip { flex: 1; overflow: hidden; margin: 0 calc(var(--u)*-22); padding: 0 calc(var(--u)*22); position: relative; }
+.clip::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--u)*40); background: linear-gradient(rgba(250,250,247,0), #FAFAF7); }
+.fab { position: absolute; right: calc(var(--u)*18); bottom: calc(var(--u)*92); height: calc(var(--u)*52); padding: 0 calc(var(--u)*20); border-radius: 99px; background: #10553F; color: #fff; display: flex; align-items: center; gap: calc(var(--u)*8);
+  font-family: Saira; font-weight: 600; font-size: calc(var(--u)*16); box-shadow: 0 calc(var(--u)*8) calc(var(--u)*20) rgba(16,85,63,.3); z-index: 2; }
+.fab svg.i { width: calc(var(--u)*20); height: calc(var(--u)*20); stroke-width: 2.4; }
+.tabbar { margin: 0 calc(var(--u)*-22); height: calc(var(--u)*76); border-top: calc(var(--u)*1) solid #E3EAE6; background: #fff; display: grid; grid-template-columns: repeat(4, 1fr); padding-bottom: calc(var(--u)*14); }
+.tabbar div { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u)*4); font-size: calc(var(--u)*11.5); font-weight: 600; color: #8A9891; position: relative; }
+.tabbar div.on { color: #10553F; }
+.tabbar svg.i { width: calc(var(--u)*22); height: calc(var(--u)*22); }
+.tabbar .tb { position: absolute; top: calc(var(--u)*8); left: 56%; background: #D97706; color: #fff; font-size: calc(var(--u)*10); min-width: calc(var(--u)*16); height: calc(var(--u)*16); border-radius: 99px; display: grid; place-items: center; }
+.phx { position: relative; }
+.bar .av { width: calc(var(--u)*34); height: calc(var(--u)*34); }
+.dim { position: absolute; inset: 0; background: rgba(14,31,24,.45); }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; top: calc(var(--u)*70); background: #FAFAF7; border-radius: calc(var(--u)*24) calc(var(--u)*24) 0 0; padding: calc(var(--u)*10) calc(var(--u)*22) calc(var(--u)*24); display: flex; flex-direction: column; }
+.handle { width: calc(var(--u)*40); height: calc(var(--u)*5); border-radius: 99px; background: #CBD8D1; margin: 0 auto calc(var(--u)*14); }
+.shead { display: flex; gap: calc(var(--u)*14); align-items: center; }
+.shead .thumb { width: calc(var(--u)*84); height: calc(var(--u)*84); border-radius: calc(var(--u)*16); }
+.shead b { display: block; font-family: Saira; font-weight: 600; font-size: calc(var(--u)*24); line-height: 1.1; }
+.shead span { color: #5B6B63; font-size: calc(var(--u)*14); }
+.shead .tags { display: flex; gap: calc(var(--u)*6); margin-top: calc(var(--u)*8); flex-wrap: wrap; }
+.shead .tag { font-size: calc(var(--u)*11.5); }
+.sheet .card { margin-top: calc(var(--u)*14); }
+.sheet .kv { font-size: calc(var(--u)*13.5); padding: calc(var(--u)*10) 0; }
+.kv .callb { display: inline-flex; align-items: center; gap: calc(var(--u)*6); color: #10553F; }
+.kv .callb svg.i { width: calc(var(--u)*15); height: calc(var(--u)*15); }
+.gm { display: flex; align-items: center; gap: calc(var(--u)*10); padding: calc(var(--u)*9) 0; border-top: calc(var(--u)*1) solid #EEF2EF; font-size: calc(var(--u)*14); }
+.gm:first-of-type { border-top: 0; }
+.gm .av { width: calc(var(--u)*30); height: calc(var(--u)*30); font-size: calc(var(--u)*11.5); }
+.gm .nm { flex: 1; font-weight: 500; }
+.gm .nm em { font-style: normal; color: #6B7A72; font-weight: 400; }
+.gm .so { color: #10553F; font-weight: 600; font-size: calc(var(--u)*13); border: calc(var(--u)*1.5) solid #CBD8D1; border-radius: calc(var(--u)*8); padding: calc(var(--u)*5) calc(var(--u)*10); }
+.gm.gone .nm { color: #8A9891; text-decoration: line-through; }
+.gm.gone .when { color: #8A9891; font-size: calc(var(--u)*12.5); }
+.glabel { display: flex; justify-content: space-between; font-size: calc(var(--u)*13.5); padding: calc(var(--u)*12) 0 calc(var(--u)*4); }
+.glabel span { color: #6B7A72; }
+.formnav { display: flex; align-items: center; justify-content: space-between; }
+.formnav .x { display: flex; align-items: center; gap: calc(var(--u)*4); color: #4A5B53; font-weight: 500; }
+.formnav .x svg.i { width: calc(var(--u)*20); height: calc(var(--u)*20); }
+.tight .field { margin-top: calc(var(--u)*12); }
+.tight .in { height: calc(var(--u)*48); }
+.tight .chip { padding: calc(var(--u)*8) calc(var(--u)*13); font-size: calc(var(--u)*13.5); }
+.select-in { justify-content: space-between; }
+.select-in svg.i { color: #4A5B53; }
+.phototile { height: calc(var(--u)*56); border: calc(var(--u)*1.5) dashed #A9C4B6; border-radius: calc(var(--u)*12); display: flex; align-items: center; justify-content: center; gap: calc(var(--u)*8); color: #10553F; font-weight: 600; font-size: calc(var(--u)*14.5); }
+.phototile svg.i { width: calc(var(--u)*20); height: calc(var(--u)*20); }
+</style>
+
+<div class="wrap">
+<h2>Reception console: desktop and phone</h2>
+<p class="subtitle">One staff app with the same layout on desktop and phone. Whatever a person's role doesn't allow simply isn't shown: hosts see "My visitors" and "My invites", reception adds the lobby and log, and admins add staff and devices. The lobby updates live with no refresh.</p>
+
+<h3 class="group-h">Desktop, front-desk PC</h3>
+<div class="browser"><div class="bbar"><i></i><i></i><i></i><span class="url">visitors.noveltylabels.com/reception</span></div>
+<div class="dkscr"><div class="dk">
+  <aside class="side">
+    <img class="logo" src="logo.png" alt="Novelty Labels">
+    <a class="on"><svg class="i"><use href="#i-home"/></svg>Lobby<span class="badge">2</span></a>
+    <a><svg class="i"><use href="#i-cal"/></svg>Expected today<span class="cnt">5</span></a>
+    <a><svg class="i"><use href="#i-list"/></svg>Visit log</a>
+    <a><svg class="i"><use href="#i-mail"/></svg>My invites</a>
+    <div class="navlabel">Admin</div>
+    <a><svg class="i"><use href="#i-users"/></svg>Staff</a>
+    <a><svg class="i"><use href="#i-tablet"/></svg>Desk devices</a>
+    <div class="me"><span class="av">SR</span><div><b>Sunita Rao</b><span>Reception · Admin</span></div></div>
+  </aside>
+  <div class="dmain">
+    <div class="topbar">
+      <div><h1>Lobby</h1><p><span class="live"></span>Live · Thursday, 8 October</p></div>
+      <div class="tools"><div class="search"><svg class="i"><use href="#i-search"/></svg>Search visitors, hosts, companies<kbd>/</kbd></div><div class="pbtn"><svg class="i"><use href="#i-plus"/></svg>Check in visitor</div></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>In the building</span><b>14</b><em>people · 9 visits</em></div>
+      <div class="stat amber"><span>Arriving</span><b>2</b><em>waiting for you to confirm</em></div>
+      <div class="stat"><span>Expected today</span><b>5</b><em>invites still to arrive</em></div>
+      <div class="stat"><span>Signed out today</span><b>11</b><em>people</em></div>
+    </div>
+    <div class="arriving">
+      <div class="sh"><h2><span class="adot"></span>Arriving</h2><p>Checked in on their own phone. Confirm once you see them at the desk; that's when the host gets emailed.</p></div>
+      <div class="acards">
+        <div class="acard"><span class="thumb"><svg class="face"><use href="#i-face"/></svg></span>
+          <div class="ai"><b>Priya Sharma<span class="plus">+2</span></b><span>Acme Packaging · visiting <strong>Rahul Mehta</strong></span><span>Arrived 10:44 · code <span class="code-chip">427</span></span></div>
+          <div class="aact"><span class="pbtn sm"><svg class="i"><use href="#i-check"/></svg>Confirm</span><span class="gbtn sm">Not here</span></div></div>
+        <div class="acard"><span class="thumb t2"><svg class="face"><use href="#i-face"/></svg></span>
+          <div class="ai"><b>Vikram Joshi</b><span>Delivery · visiting <strong>Stores</strong></span><span>Arrived 10:47 · code <span class="code-chip">512</span></span></div>
+          <div class="aact"><span class="pbtn sm"><svg class="i"><use href="#i-check"/></svg>Confirm</span><span class="gbtn sm">Not here</span></div></div>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel">
+        <div class="ph2"><h2>In the building</h2><span class="muted">9 visits · 14 people</span></div>
+        <table class="tbl">
+          <tr><th>Visitor</th><th>Host</th><th>In since</th><th>Via</th><th>Host emailed</th><th></th></tr>
+          <tr class="warn"><td><div class="vis"><span class="thumb t6"><svg class="face"><use href="#i-face"/></svg></span><div><b>Imran Sheikh</b><span>Delta Courier</span></div></div></td><td>Stores</td><td><span class="stale"><svg class="i"><use href="#i-alert"/></svg>Yest. 17:40</span></td><td><span class="tag">Reception</span></td><td><span class="ok"><svg class="i"><use href="#i-check"/></svg>17:40</span></td><td><span class="lnk">Sign out</span></td></tr>
+          <tr><td><div class="vis"><span class="thumb t3"><svg class="face"><use href="#i-face"/></svg></span><div><b>Fatima Khan</b><span>Brightline · <span class="tag inv" style="padding:0 6px">Invited</span></span></div></div></td><td>Neha Kapoor</td><td>09:02</td><td><span class="tag desk">Desk</span></td><td><span class="ok"><svg class="i"><use href="#i-check"/></svg>09:02</span></td><td><span class="lnk">Sign out</span></td></tr>
+          <tr><td><div class="vis"><span class="thumb t4"><svg class="face"><use href="#i-face"/></svg></span><div><b>Rohan Gupta<span class="plus">+1</span></b><span>Orbit Logistics</span></div></div></td><td>Amit Shah</td><td>09:15</td><td><span class="tag">Reception</span></td><td><span class="ok"><svg class="i"><use href="#i-check"/></svg>09:15</span></td><td><span class="lnk">Sign out</span></td></tr>
+          <tr><td><div class="vis"><span class="thumb t5"><svg class="face"><use href="#i-face"/></svg></span><div><b>Deepak Verma</b><span>Contractor</span></div></div></td><td>Facilities</td><td>09:40</td><td><span class="tag desk">Desk</span></td><td><span class="bad"><svg class="i"><use href="#i-alert"/></svg>Failed<u>Resend</u></span></td><td><span class="lnk">Sign out</span></td></tr>
+          <tr><td><div class="vis"><span class="thumb t2"><svg class="face"><use href="#i-face"/></svg></span><div><b>Sneha Patil<span class="plus">+3</span></b><span>Zenith Prints</span></div></div></td><td>Rahul Mehta</td><td>10:05</td><td><span class="tag own">Own phone</span></td><td><span class="ok"><svg class="i"><use href="#i-check"/></svg>10:07</span></td><td><span class="lnk">Sign out</span></td></tr>
+          <tr><td><div class="vis"><span class="thumb"><svg class="face"><use href="#i-face"/></svg></span><div><b>Karan Malhotra</b><span>Interview</span></div></div></td><td>Pooja Nair</td><td>10:20</td><td><span class="tag desk">Desk</span></td><td><span class="ok"><svg class="i"><use href="#i-check"/></svg>10:20</span></td><td><span class="lnk">Sign out</span></td></tr>
+        </table>
+      </div>
+      <div class="panel">
+        <div class="ph2"><h2>Expected today</h2><span class="muted">5 to come</span></div>
+        <div class="exp-row next"><span class="tm">11:00</span><div class="who2"><b>Arjun Nair<span class="plus">+2</span></b><span>for Rahul Mehta</span></div><span class="lnk">Check in</span></div>
+        <div class="exp-row"><span class="tm">11:30</span><div class="who2"><b>Leena D'Souza</b><span>for Neha Kapoor</span></div><span class="lnk">Check in</span></div>
+        <div class="exp-row"><span class="tm">12:00</span><div class="who2"><b>Harsh Vardhan</b><span>for Amit Shah</span></div><span class="lnk">Check in</span></div>
+        <div class="exp-row"><span class="tm">14:00</span><div class="who2"><b>Ananya Bose<span class="plus">+1</span></b><span>for Pooja Nair</span></div><span class="lnk">Check in</span></div>
+        <div class="exp-row"><span class="tm">15:30</span><div class="who2"><b>Mohit Rana</b><span>for Rahul Mehta</span></div><span class="lnk">Check in</span></div>
+      </div>
+    </div>
+  </div>
+</div></div></div>
+
+<h3 class="group-h">Phone: same console, one column</h3>
+<div class="flow">
+
+  <div class="shot"><div class="cap"><span class="n">R1</span>Lobby<span class="dev">Staff phone</span></div>
+  <div class="phone"><div class="scr"><div class="ph phx" style="padding-bottom:0">
+    <div class="bar"><img class="logo" src="logo.png" alt="Novelty Labels"><span class="av">SR</span></div>
+    <div class="h2" style="margin-top:calc(var(--u)*18);margin-bottom:0">Lobby</div>
+    <div class="mchips"><span class="mchip">14 in building</span><span class="mchip amber">2 arriving</span><span class="mchip">5 expected</span></div>
+    <div class="clip">
+      <div class="sub"><span class="adot"></span>Arriving<em>Confirm at the desk</em></div>
+      <div class="mac">
+        <div class="top"><span class="thumb"><svg class="face"><use href="#i-face"/></svg></span><div class="ai"><b>Priya Sharma<span class="plus">+2</span></b><span>For Rahul Mehta · 10:44 · code <span class="code-chip">427</span></span></div></div>
+        <div class="btns"><span class="mbtn"><svg class="i"><use href="#i-check"/></svg>Confirm</span><span class="mbtn g">Not here</span></div>
+      </div>
+      <div class="sub">In the building<em>9 visits</em></div>
+      <div class="mrow"><span class="thumb t6"><svg class="face"><use href="#i-face"/></svg></span><div class="ai"><b>Imran Sheikh</b><span style="color:#B45309">Since yesterday 17:40</span></div><span class="dots"><svg class="i"><use href="#i-more"/></svg></span></div>
+      <div class="mrow"><span class="thumb t3"><svg class="face"><use href="#i-face"/></svg></span><div class="ai"><b>Fatima Khan</b><span>Neha Kapoor · since 09:02</span></div><span class="dots"><svg class="i"><use href="#i-more"/></svg></span></div>
+      <div class="mrow"><span class="thumb t4"><svg class="face"><use href="#i-face"/></svg></span><div class="ai"><b>Rohan Gupta<span class="plus">+1</span></b><span>Amit Shah · since 09:15</span></div><span class="dots"><svg class="i"><use href="#i-more"/></svg></span></div>
+      <div class="mrow"><span class="thumb t5"><svg class="face"><use href="#i-face"/></svg></span><div class="ai"><b>Deepak Verma <svg class="i warnico"><use href="#i-alert"/></svg></b><span>Facilities · email failed</span></div><span class="dots"><svg class="i"><use href="#i-more"/></svg></span></div>
+      <div class="mrow"><span class="thumb t2"><svg class="face"><use href="#i-face"/></svg></span><div class="ai"><b>Sneha Patil<span class="plus">+3</span></b><span>Rahul Mehta · since 10:05</span></div><span class="dots"><svg class="i"><use href="#i-more"/></svg></span></div>
+    </div>
+    <div class="fab"><svg class="i"><use href="#i-plus"/></svg>Check in</div>
+    <div class="tabbar">
+      <div class="on"><svg class="i"><use href="#i-home"/></svg>Lobby<span class="tb">2</span></div>
+      <div><svg class="i"><use href="#i-cal"/></svg>Expected</div>
+      <div><svg class="i"><use href="#i-list"/></svg>Log</div>
+      <div><svg class="i"><use href="#i-mail"/></svg>Invites</div>
+    </div>
+  </div></div></div></div>
+
+  <div class="shot"><div class="cap"><span class="n">R2</span>Visit details<span class="dev">Staff phone</span></div>
+  <div class="phone"><div class="scr"><div class="ph phx">
+    <div class="bar"><img class="logo" src="logo.png" alt=""><span class="av">SR</span></div>
+    <div class="dim"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="shead"><span class="thumb t2"><svg class="face"><use href="#i-face"/></svg></span>
+        <div><b>Sneha Patil</b><span>Zenith Prints</span><div class="tags"><span class="tag">In since 10:05</span><span class="tag own">Own phone</span></div></div></div>
+      <div class="card">
+        <div class="kv"><span>Visiting</span><b>Rahul Mehta · Sales</b></div>
+        <div class="kv"><span>Purpose</span><b>Meeting</b></div>
+        <div class="kv"><span>Mobile</span><b class="callb"><svg class="i"><use href="#i-call"/></svg>+91 99201 44518</b></div>
+        <div class="kv"><span>Host emailed</span><b class="ok"><svg class="i"><use href="#i-check"/></svg>10:07</b></div>
+      </div>
+      <div class="glabel"><b>Group</b><span>3 of 4 still here</span></div>
+      <div class="gm"><span class="av">SP</span><span class="nm">Sneha Patil <em>(main visitor)</em></span></div>
+      <div class="gm"><span class="av">VP</span><span class="nm">Varun Patil</span><span class="so">Sign out</span></div>
+      <div class="gm gone"><span class="av">KM</span><span class="nm">Kiran More</span><span class="when">Left 10:50</span></div>
+      <div class="gm"><span class="av">AR</span><span class="nm">Asha Rao</span><span class="so">Sign out</span></div>
+      <div class="grow"></div>
+      <div class="btn"><svg class="i"><use href="#i-out"/></svg>Sign out everyone (3)</div>
+    </div>
+  </div></div></div></div>
+
+  <div class="shot"><div class="cap"><span class="n">R3</span>Staff check-in<span class="dev">Staff phone</span></div>
+  <div class="phone"><div class="scr"><div class="ph tight">
+    <div class="formnav"><span class="x"><svg class="i"><use href="#i-x"/></svg>Close</span><span class="small">All on one screen</span></div>
+    <div class="h2" style="margin-top:calc(var(--u)*16)">Check in a visitor</div>
+    <div class="field"><label>Full name <em>*</em></label><div class="in focus">Ravi Shetty<span class="caret"></span></div></div>
+    <div class="field"><label>Company</label><div class="in">Metro Inks</div></div>
+    <div class="field"><label>Visiting <em>*</em></label><div class="in select-in">Rahul Mehta · Sales<svg class="i"><use href="#i-down"/></svg></div></div>
+    <div class="field"><label>People with them</label><div class="grp-l in" style="justify-content:space-between"><span style="display:flex;align-items:center;gap:calc(var(--u)*10)"><svg class="i"><use href="#i-user"/></svg>Just them</span><span style="color:#10553F;font-weight:600;font-size:calc(var(--u)*14)">+ Add</span></div></div>
+    <div class="field"><label>Purpose</label><div class="chips"><span class="chip on">Meeting</span><span class="chip">Interview</span><span class="chip">Delivery</span><span class="chip">Other</span></div></div>
+    <div class="field"><label>Photo<span class="opt">optional at the desk</span></label><div class="phototile"><svg class="i"><use href="#i-camera"/></svg>Take photo</div></div>
+    <div class="grow"></div>
+    <div class="btn">Check in &amp; email host</div>
+  </div></div></div></div>
+
+</div>
+</div>
+<script src="icons.js"></script>
+
+</div></div>
+<script>window.toggleSelect = function () {};</script>
+</body>
+</html>

@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3. Group visits</title>
+<style>
+    /*
+     * BRAINSTORM COMPANION FRAME TEMPLATE
+     *
+     * This template provides a consistent frame with:
+     * - OS-aware light/dark theming
+     * - Fixed header and selection indicator bar
+     * - Scrollable main content area
+     * - CSS helpers for common UI patterns
+     *
+     * Content is injected via placeholder comment in #claude-content.
+     */
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+
+    /* ===== THEME VARIABLES ===== */
+    :root {
+      --bg-primary: #f5f5f7;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #e5e5e7;
+      --border: #d1d1d6;
+      --text-primary: #1d1d1f;
+      --text-secondary: #86868b;
+      --text-tertiary: #aeaeb2;
+      --accent: #0071e3;
+      --accent-hover: #0077ed;
+      --success: #34c759;
+      --warning: #ff9f0a;
+      --error: #ff3b30;
+      --selected-bg: #e8f4fd;
+      --selected-border: #0071e3;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #1d1d1f;
+        --bg-secondary: #2d2d2f;
+        --bg-tertiary: #3d3d3f;
+        --border: #424245;
+        --text-primary: #f5f5f7;
+        --text-secondary: #86868b;
+        --text-tertiary: #636366;
+        --accent: #0a84ff;
+        --accent-hover: #409cff;
+        --selected-bg: rgba(10, 132, 255, 0.15);
+        --selected-border: #0a84ff;
+      }
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    /* ===== FRAME STRUCTURE ===== */
+    .header {
+      background: var(--bg-secondary);
+      padding: 0.5rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .header h1 { font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); }
+    .header .status { font-size: 0.7rem; color: var(--success); display: flex; align-items: center; gap: 0.4rem; }
+    .header .status::before { content: ''; width: 6px; height: 6px; background: var(--success); border-radius: 50%; }
+
+    .main { flex: 1; overflow-y: auto; }
+    #claude-content { padding: 2rem; min-height: 100%; }
+
+    .indicator-bar {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      padding: 0.5rem 1.5rem;
+      flex-shrink: 0;
+      text-align: center;
+    }
+    .indicator-bar span {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    .indicator-bar .selected-text {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    /* ===== TYPOGRAPHY ===== */
+    h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; }
+    h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; }
+    .section { margin-bottom: 2rem; }
+    .label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+
+    /* ===== OPTIONS (for A/B/C choices) ===== */
+    .options { display: flex; flex-direction: column; gap: 0.75rem; }
+    .option {
+      background: var(--bg-secondary);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+    .option:hover { border-color: var(--accent); }
+    .option.selected { background: var(--selected-bg); border-color: var(--selected-border); }
+    .option .letter {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      width: 1.75rem; height: 1.75rem;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 600; font-size: 0.85rem; flex-shrink: 0;
+    }
+    .option.selected .letter { background: var(--accent); color: white; }
+    .option .content { flex: 1; }
+    .option .content h3 { font-size: 0.95rem; margin-bottom: 0.15rem; }
+    .option .content p { color: var(--text-secondary); font-size: 0.85rem; margin: 0; }
+
+    /* ===== CARDS (for showing designs/mockups) ===== */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .card.selected { border-color: var(--selected-border); border-width: 2px; }
+    .card-image { background: var(--bg-tertiary); aspect-ratio: 16/10; display: flex; align-items: center; justify-content: center; }
+    .card-body { padding: 1rem; }
+    .card-body h3 { margin-bottom: 0.25rem; }
+    .card-body p { color: var(--text-secondary); font-size: 0.85rem; }
+
+    /* ===== MOCKUP CONTAINER ===== */
+    .mockup {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 1.5rem;
+    }
+    .mockup-header {
+      background: var(--bg-tertiary);
+      padding: 0.5rem 1rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+    .mockup-body { padding: 1.5rem; }
+
+    /* ===== SPLIT VIEW (side-by-side comparison) ===== */
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
+
+    /* ===== PROS/CONS ===== */
+    .pros-cons { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+    .pros, .cons { background: var(--bg-secondary); border-radius: 8px; padding: 1rem; }
+    .pros h4 { color: var(--success); font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .cons h4 { color: var(--error); font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .pros ul, .cons ul { margin-left: 1.25rem; font-size: 0.85rem; color: var(--text-secondary); }
+    .pros li, .cons li { margin-bottom: 0.25rem; }
+
+    /* ===== PLACEHOLDER (for mockup areas) ===== */
+    .placeholder {
+      background: var(--bg-tertiary);
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 2rem;
+      text-align: center;
+      color: var(--text-tertiary);
+    }
+
+    /* ===== INLINE MOCKUP ELEMENTS ===== */
+    .mock-nav { background: var(--accent); color: white; padding: 0.75rem 1rem; display: flex; gap: 1.5rem; font-size: 0.9rem; }
+    .mock-sidebar { background: var(--bg-tertiary); padding: 1rem; min-width: 180px; }
+    .mock-content { padding: 1.5rem; flex: 1; }
+    .mock-button { background: var(--accent); color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; }
+    .mock-input { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; width: 100%; }
+  
+.header a { color: inherit; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="header"><h1><a href="index.html">Novelty Labels visitor system: design mockups</a></h1><h1>3. Group visits</h1></div>
+<div class="main"><div id="claude-content">
+<link rel="stylesheet" href="kit.css">
+<style>
+.grp { display: flex; align-items: center; justify-content: space-between; height: calc(var(--u)*56); padding: 0 calc(var(--u)*8) 0 calc(var(--u)*14);
+  border: calc(var(--u)*1.5) solid #CBD8D1; border-radius: calc(var(--u)*12); background: #fff; }
+.grp-l { display: flex; align-items: center; gap: calc(var(--u)*10); font-size: calc(var(--u)*16); font-weight: 500; }
+.grp-l svg.i { width: calc(var(--u)*20); height: calc(var(--u)*20); color: #6B7A72; }
+.addbtn { display: flex; align-items: center; gap: calc(var(--u)*6); height: calc(var(--u)*42); padding: 0 calc(var(--u)*13); border-radius: calc(var(--u)*10);
+  background: #EAF3EE; color: #10553F; font-weight: 600; font-size: calc(var(--u)*14); }
+.addbtn svg.i, .addrow svg.i { width: calc(var(--u)*18); height: calc(var(--u)*18); stroke-width: 2.4; }
+.ghdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: calc(var(--u)*6); }
+.ghdr label { margin: 0 !important; }
+.count { font-size: calc(var(--u)*12.5); font-weight: 600; color: #10553F; background: #EAF3EE; padding: calc(var(--u)*3) calc(var(--u)*9); border-radius: 99px; }
+.person { display: flex; align-items: center; gap: calc(var(--u)*8); margin-top: calc(var(--u)*8); }
+.person .num { width: calc(var(--u)*28); height: calc(var(--u)*28); border-radius: 50%; background: #F0F3F1; font-size: calc(var(--u)*12.5); font-weight: 600; color: #4A5B53; display: grid; place-items: center; flex: none; }
+.person .in { flex: 1; }
+.person .me { flex: 1; font-size: calc(var(--u)*15.5); font-weight: 500; padding: calc(var(--u)*6) 0; }
+.person .me span { color: #6B7A72; font-weight: 400; }
+.person .x { width: calc(var(--u)*44); height: calc(var(--u)*44); display: grid; place-items: center; color: #6B7A72; flex: none; border-radius: calc(var(--u)*10); }
+.person .x svg.i { width: calc(var(--u)*20); height: calc(var(--u)*20); }
+.addrow { margin-top: calc(var(--u)*10); height: calc(var(--u)*50); border: calc(var(--u)*1.5) dashed #A9C4B6; border-radius: calc(var(--u)*12); display: flex; align-items: center; justify-content: center;
+  gap: calc(var(--u)*8); color: #10553F; font-weight: 600; font-size: calc(var(--u)*14.5); }
+.names { border-top: calc(var(--u)*1) solid #EEF2EF; padding: calc(var(--u)*8) 0 calc(var(--u)*10); }
+.names .kvh { display: flex; justify-content: space-between; font-size: calc(var(--u)*14); padding: calc(var(--u)*4) 0 calc(var(--u)*6); }
+.names .kvh span { color: #6B7A72; }
+.names .p { display: flex; align-items: center; gap: calc(var(--u)*10); padding: calc(var(--u)*5) 0; font-size: calc(var(--u)*14.5); font-weight: 500; }
+.names .p .av { width: calc(var(--u)*28); height: calc(var(--u)*28); font-size: calc(var(--u)*11.5); }
+.vf .frame { position: absolute; left: 7%; right: 7%; top: 20%; bottom: 15%; border: calc(var(--u)*2.5) dashed rgba(255,255,255,.7); border-radius: calc(var(--u)*22); }
+.vf .crowd { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; }
+.tagplus { font-size: calc(var(--u)*12); font-weight: 600; color: #10553F; background: #EAF3EE; padding: calc(var(--u)*2) calc(var(--u)*7); border-radius: 99px; margin-left: calc(var(--u)*6); }
+.scrollfade { height: calc(var(--u)*10); margin: calc(var(--u)*-2) calc(var(--u)*-22) 0; background: linear-gradient(#EDF0EC, rgba(250,250,247,0)); }
+</style>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-plus" viewBox="0 0 24 24"><g><path d="M12 5v14"/><path d="M5 12h14"/></g></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><g><path d="M18 6 6 18"/><path d="m6 6 12 12"/></g></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><g><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></g></symbol>
+</svg>
+
+<div class="wrap">
+<h2>Group visits: number of people and their names</h2>
+<p class="subtitle">Most visitors come alone, so the default is "Just me" and adding people is one tap. The group checks in and signs out together. The photo is of the main visitor only; the normal Quick photo screen is used. The host email, reception's list and the in-building headcount all show the group size and names.</p>
+
+<div class="flow">
+
+  <div class="shot"><div class="cap"><span class="n">2</span>Details, alone<span class="dev">Both</span></div>
+  <div class="phone"><div class="scr"><div class="ph">
+    <div class="nav"><span class="back"><svg class="i"><use href="#i-back"/></svg>Back</span><span>Step 1 of 3</span></div>
+    <div class="seg"><i class="on"></i><i></i><i></i></div>
+    <div class="h2">Tell us about you</div>
+    <div class="field"><label>Full name <em>*</em></label><div class="in">Priya Sharma</div></div>
+    <div class="field"><label>Company</label><div class="in">Acme Packaging</div></div>
+    <div class="field"><label>Mobile number<span class="opt">optional</span></label><div class="in">+91 98765 43210</div></div>
+    <div class="field"><label>People with you</label>
+      <div class="grp"><div class="grp-l"><svg class="i"><use href="#i-user"/></svg>Just me</div><div class="addbtn"><svg class="i"><use href="#i-plus"/></svg>Add a person</div></div>
+    </div>
+    <div class="field"><label>Purpose of visit</label><div class="chips"><span class="chip on">Meeting</span><span class="chip">Interview</span><span class="chip">Delivery</span><span class="chip">Contractor</span><span class="chip">Other</span></div></div>
+    <div class="grow"></div>
+    <div class="btn">Continue</div>
+  </div></div></div></div>
+
+  <div class="shot"><div class="cap"><span class="n">2</span>Details, with a group<span class="dev">Both</span></div>
+  <div class="phone"><div class="scr"><div class="ph">
+    <div class="nav"><span class="back"><svg class="i"><use href="#i-back"/></svg>Back</span><span>Step 1 of 3</span></div>
+    <div class="seg"><i class="on"></i><i></i><i></i></div>
+    <div class="scrollfade" style="margin-top:calc(var(--u)*12)"></div>
+    <div class="field" style="margin-top:calc(var(--u)*4)"><label>Mobile number<span class="opt">optional</span></label><div class="in">+91 98765 43210</div></div>
+    <div class="field">
+      <div class="ghdr"><label>People with you</label><span class="count">3 people, including you</span></div>
+      <div class="person"><span class="num">1</span><div class="me">Priya Sharma <span>(you)</span></div></div>
+      <div class="person"><span class="num">2</span><div class="in">Anil Kumar</div><span class="x"><svg class="i"><use href="#i-x"/></svg></span></div>
+      <div class="person"><span class="num">3</span><div class="in focus">Meera Iyer<span class="caret"></span></div><span class="x"><svg class="i"><use href="#i-x"/></svg></span></div>
+      <div class="addrow"><svg class="i"><use href="#i-plus"/></svg>Add another person</div>
+    </div>
+    <div class="field"><label>Purpose of visit</label><div class="chips"><span class="chip on">Meeting</span><span class="chip">Interview</span><span class="chip">Delivery</span><span class="chip">Contractor</span><span class="chip">Other</span></div></div>
+    <div class="grow"></div>
+    <div class="btn">Continue</div>
+  </div></div></div></div>
+
+  <div class="shot"><div class="cap"><span class="n">7b</span>Invite: who's coming<span class="dev">Both</span></div>
+  <div class="phone"><div class="scr"><div class="ph">
+    <div class="nav"><span class="back"><svg class="i"><use href="#i-back"/></svg>Back</span><span>Step 1 of 2</span></div>
+    <div class="seg"><i class="on"></i><i></i></div>
+    <div class="h2">Anyone with you today?</div>
+    <p class="lead">Rahul added these guests to your invite. Remove anyone who couldn't make it, or add someone.</p>
+    <div class="field">
+      <div class="ghdr"><label>People with you</label><span class="count">3 people</span></div>
+      <div class="person"><span class="num">1</span><div class="me">Arjun Nair <span>(you)</span></div></div>
+      <div class="person"><span class="num">2</span><div class="in">Kavya Rao</div><span class="x"><svg class="i"><use href="#i-x"/></svg></span></div>
+      <div class="person"><span class="num">3</span><div class="in">Sanjay Pillai</div><span class="x"><svg class="i"><use href="#i-x"/></svg></span></div>
+      <div class="addrow"><svg class="i"><use href="#i-plus"/></svg>Add another person</div>
+    </div>
+    <div class="grow"></div>
+    <div class="btn">Continue</div>
+  </div></div></div></div>
+
+  <div class="shot"><div class="cap"><span class="n">5</span>Group checked in<span class="dev desk">Desk device</span></div>
+  <div class="phone"><div class="scr"><div class="ph">
+    <div class="grow vcenter">
+      <div class="okc"><svg class="i"><use href="#i-check"/></svg></div>
+      <div class="h1" style="margin-top:0">You're checked in, Priya.</div>
+      <p class="lead">We've emailed Rahul Mehta. Please take a seat; they'll come to collect all three of you.</p>
+      <div class="card">
+        <div class="kv"><span>Visiting</span><b>Rahul Mehta · Sales</b></div>
+        <div class="names">
+          <div class="kvh"><span>Your group</span><b>3 people</b></div>
+          <div class="p"><span class="av">PS</span>Priya Sharma</div>
+          <div class="p"><span class="av">AK</span>Anil Kumar</div>
+          <div class="p"><span class="av">MI</span>Meera Iyer</div>
+        </div>
+        <div class="kv"><span>Checked in</span><b>10:43 AM</b></div>
+      </div>
+    </div>
+    <div class="btn ghost">Done</div>
+    <p class="small" style="text-align:center;margin-top:calc(var(--u)*10)">Back to the start in 8 s</p>
+  </div></div></div></div>
+
+  <div class="shot"><div class="cap"><span class="n">10</span>Group sign-out<span class="dev desk">Desk device</span></div>
+  <div class="phone"><div class="scr"><div class="ph">
+    <div class="nav"><span class="back"><svg class="i"><use href="#i-back"/></svg>Back</span></div>
+    <div class="h2">Signing out</div>
+    <p class="lead">Type the first few letters of your name.</p>
+    <div class="field"><div class="in focus"><svg class="i"><use href="#i-search"/></svg>pri<span class="caret" style="margin-left:0"></span></div></div>
+    <div class="list">
+      <div class="row"><div class="av">PS</div><div><b>Priya S.<span class="tagplus">+2</span></b><span>In since 10:43 · visiting Rahul M.</span></div><svg class="i end mut"><use href="#i-chev"/></svg></div>
+      <div class="row"><div class="av">PR</div><div><b>Prithvi R.</b><span>In since 09:15 · visiting Neha K.</span></div><svg class="i end mut"><use href="#i-chev"/></svg></div>
+    </div>
+    <div class="grow"></div>
+    <p class="small">Signing out a group signs everyone in it out. If someone leaves early, reception can sign them out separately.</p>
+  </div></div></div></div>
+
+</div>
+</div>
+<script src="icons.js"></script>
+
+</div></div>
+<script>window.toggleSelect = function () {};</script>
+</body>
+</html>
