@@ -35,6 +35,7 @@ async function Admin() {
       <header className="flex items-center gap-4">
         <Image src="/logo.png" alt="Novelty Labels" width={136} height={34} className="h-8 w-auto" />
         <h1 className="h-display flex-1 text-[30px]">Admin</h1>
+        <Link href="/admin/poster" className="btn-sm border-[1.5px] border-line-input bg-surface">Entrance poster</Link>
         <Link href="/reception" className="btn-sm border-[1.5px] border-line-input bg-surface">Lobby</Link>
       </header>
 

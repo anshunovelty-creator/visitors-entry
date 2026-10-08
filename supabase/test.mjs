@@ -9,7 +9,7 @@ const db = new PGlite();
 const dir = new URL("./migrations/", import.meta.url);
 
 await db.exec(`
-  create role anon; create role authenticated;
+  create role anon; create role authenticated; create role service_role;
   create schema auth;
   create table auth.users (id uuid primary key default gen_random_uuid(), email text);
   create function auth.uid() returns uuid language sql stable as
@@ -21,7 +21,7 @@ await db.exec(`
   create function storage.foldername(name text) returns text[] language sql immutable as
     $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
   create publication supabase_realtime;
-  grant usage on schema public, auth, storage to anon, authenticated;
+  grant usage on schema public, auth, storage to anon, authenticated, service_role;
   grant all on all tables in schema storage to anon, authenticated;
   -- Supabase grants these by default; the migration must revoke what it doesn't want exposed.
   alter default privileges in schema public grant all on tables to anon, authenticated;
@@ -113,6 +113,48 @@ await rejects(as(rahul, "insert into storage.objects (bucket_id, name) values ('
 assert.equal((await as(reception, "select * from storage.objects")).length, 1, "reception sees photos");
 assert.equal((await as(rahul, "select * from storage.objects")).length, 1, "host sees own visitor's photo");
 assert.equal((await as(neha, "select * from storage.objects")).length, 0, "other host doesn't");
+
+// ---- invites
+await db.query(
+  `insert into public.invites (host_id, visitor_name, visitor_company, visit_date, purpose, code) values
+   ($1, 'Ina Invite', 'Acme', public.office_today(), 'Meeting', 'ABC234'),
+   ($1, 'Tom Tomorrow', null, public.office_today() + 1, null, 'TMR234'),
+   ($1, 'Rex Reception', null, public.office_today(), null, 'REC234')`,
+  [rahul],
+);
+await db.query("insert into public.invite_guests (invite_id, full_name) select id, 'Gina Guest' from public.invites where code = 'ABC234'");
+const [inv] = await as(device, "select * from public.kiosk_redeem_invite('abc-234')");
+assert.deepEqual([inv.visitor_name, inv.host_name, inv.guests], ["Ina Invite", "Rahul Mehta", ["Gina Guest"]]);
+assert.equal((await as(device, "select * from public.kiosk_redeem_invite('TMR234')")).length, 0, "only on the invite date");
+await rejects(as(null, "select * from public.kiosk_redeem_invite('ABC234')"), /permission denied/);
+await rejects(as(rahul, "select * from public.redeem_invite('ABC234')"), /permission denied/, "core is server-only");
+await rejects(as(reception, "select * from public.create_visit('reception', null, 'X', null, null, null, null, null, null)"), /permission denied/);
+
+// The invite decides the host, and works once.
+const [fromInvite] = await as(device,
+  "select * from public.kiosk_check_in('Ina Invite', 'Acme', null, 'Meeting', null, array['Gina Guest'], $1, $2)", [photo, inv.invite_id]);
+assert.equal(fromInvite.host_name, "Rahul Mehta");
+assert.equal((await db.query("select status from public.invites where code = 'ABC234'")).rows[0].status, "used");
+await rejects(as(device, "select * from public.kiosk_check_in('Ina Invite', null, null, null, null, null, null, $1)", [inv.invite_id]), /invite not valid/);
+
+// Reception's one-click check-in for an expected visitor.
+const [rex] = (await db.query("select id from public.invites where code = 'REC234'")).rows;
+await rejects(as(rahul, "select public.staff_check_in_invite($1)", [rex.id]), /reception only/);
+const [{ v: rexVisit }] = await as(reception, "select public.staff_check_in_invite($1) as v", [rex.id]);
+const [rv] = (await db.query("select source, status, host_id, checked_in_by from public.visits where id = $1", [rexVisit])).rows;
+assert.deepEqual([rv.source, rv.status, rv.host_id, rv.checked_in_by], ["reception", "checked_in", rahul, reception]);
+
+// ---- own phone (server code, as service_role)
+async function asService(sql, params) {
+  await db.exec("set role service_role");
+  try { return (await db.query(sql, params)).rows; } finally { await db.exec("reset role"); }
+}
+const phoneCall = "select * from public.create_visit('own_phone', null, 'Pat Phone', null, null, null, $1, null, $2, null, 'tokhash', 'iphash')";
+const [pv] = await asService(phoneCall, [neha, "phone/0b6c1f3e-8a2b-4c3d-9e4f-5a6b7c8d9e0f.jpg"]);
+assert.equal(pv.status, "arriving");
+assert.match(pv.code, /^[1-9][0-9]{2}$/);
+await rejects(asService(phoneCall, [neha, photo]), /bad photo path/, "phone can't claim a desk photo");
+await rejects(asService("select * from public.create_visit('desk', null, $1, null, null, null, null, null, null)", ["x".repeat(121)]), /too long/);
 
 // ---- helpers
 const short = async (n) => (await db.query("select public.short_name($1) as s", [n])).rows[0].s;

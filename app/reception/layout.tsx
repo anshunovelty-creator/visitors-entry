@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { History, LayoutGrid, LogOut, Settings } from "lucide-react";
+import { History, LayoutGrid, LogOut, Settings, Ticket } from "lucide-react";
 import { signOutStaff } from "./actions";
 import { getStaff, initials } from "./staff";
 
@@ -27,6 +27,7 @@ async function Nav() {
     <>
       <nav className="flex gap-1 lg:flex-col">
         <Link href="/reception" className={item}><LayoutGrid className="size-5" /><span className="hidden sm:inline">{me.role === "host" ? "My visitors" : "Lobby"}</span></Link>
+        <Link href="/reception/invites" className={item}><Ticket className="size-5" /><span className="hidden sm:inline">Invites</span></Link>
         <Link href="/reception/log" className={item}><History className="size-5" /><span className="hidden sm:inline">Visit log</span></Link>
         {me.role === "admin" && <Link href="/admin" className={item}><Settings className="size-5" /><span className="hidden sm:inline">Admin</span></Link>}
       </nav>

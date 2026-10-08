@@ -1,33 +1,101 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Image from "next/image";
 import {
-  Camera, Check, ChevronLeft, ChevronRight, CircleHelp, Lock, LogOut, Plus, Search, User, X,
+  Camera, Check, ChevronLeft, ChevronRight, CircleHelp, Lock, LogOut, Plus, Search, Ticket, User, X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { notifyDeskCheckIn } from "./actions";
 
 const PURPOSES = ["Meeting", "Interview", "Delivery", "Contractor", "Other"];
 const IDLE_MS = 60_000;
 const DONE_MS = 8_000;
 
-type Step = "welcome" | "details" | "host" | "photo" | "done" | "leave" | "left";
-type Host = { id: string | null; full_name: string; department: string | null };
+type Step = "welcome" | "invite" | "guests" | "details" | "host" | "photo" | "done" | "leave" | "left";
+export type Host = { id: string | null; full_name: string; department: string | null };
+export type Invite = {
+  invite_id: string; visitor_name: string; visitor_company: string | null; purpose: string | null;
+  host_id: string; host_name: string; host_department: string | null; guests: string[];
+};
+export type CheckInInput = {
+  name: string; company: string; mobile: string; purpose: string;
+  hostId: string | null; guests: string[]; photo: Blob; inviteId: string | null;
+};
 type OpenVisit = { visit_id: string; visitor: string; checked_in_at: string; host: string; guests: number };
 type Done = { first: string; host: string; at: string; guests: string[] };
 
-const supabase = createClient();
+// What the screens need. The desk device talks to Supabase as itself; a visitor's own phone goes
+// through server actions (see app/visit). Sign-out from the desk only: phones sign out on their status page.
+export type FlowApi = {
+  searchHosts(q: string): Promise<Host[]>;
+  redeemInvite(code: string): Promise<Invite | null>;
+  checkIn(input: CheckInInput): Promise<{ error: string } | { hostName: string | null; at: string }>;
+  findOpen?(q: string): Promise<OpenVisit[]>;
+  signOut?(visitId: string): Promise<boolean>;
+};
+
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const initials = (name: string) => name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
+// ---------------------------------------------------------------- desk device
+
+const supabase = createClient();
+const deskApi: FlowApi = {
+  async searchHosts(q) {
+    const { data } = await supabase.rpc("kiosk_search_hosts", { q });
+    return (data as Host[]) ?? [];
+  },
+  async redeemInvite(code) {
+    const { data } = await supabase.rpc("kiosk_redeem_invite", { p_code: code }).maybeSingle<Invite>();
+    return data;
+  },
+  async checkIn(i) {
+    const path = `desk/${crypto.randomUUID()}.jpg`;
+    const up = await supabase.storage.from("visit-photos").upload(path, i.photo, { contentType: "image/jpeg" });
+    if (up.error) return { error: "We couldn't save your photo. Please try again." };
+    const { data, error } = await supabase
+      .rpc("kiosk_check_in", {
+        p_visitor_name: i.name, p_company: i.company, p_mobile: i.mobile, p_purpose: i.purpose,
+        p_host_id: i.hostId, p_guests: i.guests, p_photo_path: path, p_invite_id: i.inviteId,
+      })
+      .single<{ visit_id: string; checked_in_at: string; host_name: string | null }>();
+    if (error || !data) {
+      return { error: /invite/.test(error?.message ?? "") ? "That invite has already been used. Please ask at reception." : "Something went wrong checking you in. Please ask at reception." };
+    }
+    notifyDeskCheckIn(data.visit_id).catch(() => {}); // a failed email shows in the lobby with Resend
+    return { hostName: data.host_name, at: data.checked_in_at };
+  },
+  async findOpen(q) {
+    const { data } = await supabase.rpc("kiosk_find_open_visits", { q });
+    return (data as OpenVisit[]) ?? [];
+  },
+  async signOut(id) {
+    const { data, error } = await supabase.rpc("kiosk_sign_out", { p_visit_id: id });
+    return !error && !!data;
+  },
+};
+
 export function KioskFlow() {
-  const [step, setStep] = useState<Step>("welcome");
+  return <CheckInFlow api={deskApi} desk />;
+}
+
+// ---------------------------------------------------------------- shared screens
+
+export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
+  api: FlowApi;
+  desk?: boolean;
+  initialCode?: string;
+  onCheckedIn?: () => void; // own phone: hand over to the status page instead of the Done screen
+}) {
+  const [step, setStep] = useState<Step>(initialCode ? "invite" : "welcome");
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
   const [mobile, setMobile] = useState("");
   const [purpose, setPurpose] = useState("Meeting");
   const [guests, setGuests] = useState<string[]>([]);
   const [host, setHost] = useState<Host | null>(null);
+  const [inviteId, setInviteId] = useState<string | null>(null);
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [done, setDone] = useState<Done | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,13 +103,13 @@ export function KioskFlow() {
 
   function reset() {
     setStep("welcome");
-    setName(""); setCompany(""); setMobile(""); setPurpose("Meeting");
+    setName(""); setCompany(""); setMobile(""); setPurpose("Meeting"); setInviteId(null);
     setGuests([]); setHost(null); setPhoto(null); setDone(null); setError(""); setBusy(false);
   }
 
-  // Back to the start after a minute of no touch, so the next visitor never sees someone's details.
+  // Desk only: back to the start after a minute of no touch, so the next visitor never sees someone's details.
   useEffect(() => {
-    if (step === "welcome") return;
+    if (!desk || step === "welcome") return;
     let t = setTimeout(reset, step === "done" || step === "left" ? DONE_MS : IDLE_MS);
     if (step === "done" || step === "left") return () => clearTimeout(t);
     const poke = () => { clearTimeout(t); t = setTimeout(reset, IDLE_MS); };
@@ -52,88 +120,92 @@ export function KioskFlow() {
       window.removeEventListener("pointerdown", poke);
       window.removeEventListener("keydown", poke);
     };
-  }, [step]);
+  }, [step, desk]);
+
+  function applyInvite(i: Invite) {
+    setInviteId(i.invite_id);
+    setName(i.visitor_name);
+    setCompany(i.visitor_company ?? "");
+    setPurpose(i.purpose ?? "Meeting");
+    setHost({ id: i.host_id, full_name: i.host_name, department: i.host_department });
+    setGuests(i.guests);
+    setStep("guests");
+  }
 
   async function checkIn() {
     if (!photo || !host) return;
     setBusy(true);
     setError("");
-    const path = `desk/${crypto.randomUUID()}.jpg`;
-    const up = await supabase.storage.from("visit-photos").upload(path, photo, { contentType: "image/jpeg" });
-    if (up.error) return fail("We couldn't save your photo. Please try again.");
     const named = guests.map((g) => g.trim());
-    const { data, error } = await supabase
-      .rpc("kiosk_check_in", {
-        p_visitor_name: name, p_company: company, p_mobile: mobile, p_purpose: purpose,
-        p_host_id: host.id, p_guests: named, p_photo_path: path,
-      })
-      .single<{ checked_in_at: string; host_name: string | null }>();
-    if (error || !data) return fail("Something went wrong checking you in. Please ask at reception.");
-    setDone({ first: name.trim().split(/\s+/)[0], host: data.host_name ?? "Reception", at: data.checked_in_at, guests: named });
+    const r = await api.checkIn({ name, company, mobile, purpose, hostId: host.id, guests: named, photo, inviteId });
+    if ("error" in r) {
+      setError(r.error);
+      setBusy(false);
+      return;
+    }
+    if (onCheckedIn) return onCheckedIn();
+    setDone({ first: name.trim().split(/\s+/)[0], host: r.hostName ?? "Reception", at: r.at, guests: named });
     setBusy(false);
     setStep("done");
   }
 
-  function fail(msg: string) {
-    setError(msg);
-    setBusy(false);
-  }
-
-  const steps = { details: 1, host: 2, photo: 3 } as const;
-  const back = { details: "welcome", host: "details", photo: "host", leave: "welcome" } as const;
+  const steps: Partial<Record<Step, number>> = inviteId ? { guests: 1, photo: 2 } : { details: 1, host: 2, photo: 3 };
+  const total = inviteId ? 2 : 3;
+  const back: Partial<Record<Step, Step>> = {
+    invite: "welcome", guests: "invite", details: "welcome", host: "details", photo: inviteId ? "guests" : "host", leave: "welcome",
+  };
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col p-6">
-      {step in back && (
+      {back[step] && (
         <nav className="flex items-center justify-between text-[15px] font-medium text-ink-2">
-          <button className="-ml-2 flex min-h-11 items-center gap-0.5 px-2" onClick={() => { setError(""); setStep(back[step as keyof typeof back]); }}>
+          <button className="-ml-2 flex min-h-11 items-center gap-0.5 px-2" onClick={() => { setError(""); setStep(back[step]!); }}>
             <ChevronLeft className="size-5" /> Back
           </button>
-          {step in steps && <span>Step {steps[step as keyof typeof steps]} of 3</span>}
+          {steps[step] && <span>Step {steps[step]} of {total}</span>}
         </nav>
       )}
-      {step in steps && (
+      {steps[step] && (
         <div className="mt-3 flex gap-1.5" aria-hidden>
-          {[1, 2, 3].map((n) => (
-            <i key={n} className={`h-1 flex-1 rounded-full ${n <= steps[step as keyof typeof steps] ? "bg-brand" : "bg-line"}`} />
+          {Array.from({ length: total }, (_, n) => (
+            <i key={n} className={`h-1 flex-1 rounded-full ${n < steps[step]! ? "bg-brand" : "bg-line"}`} />
           ))}
         </div>
       )}
 
-      {step === "welcome" && <Welcome onWalkIn={() => setStep("details")} onLeave={() => setStep("leave")} />}
+      {step === "welcome" && (
+        <Welcome
+          onInvite={() => setStep("invite")}
+          onWalkIn={() => { setInviteId(null); setStep("details"); }}
+          onLeave={api.signOut ? () => setStep("leave") : undefined}
+        />
+      )}
+
+      {step === "invite" && <InviteStep api={api} initialCode={initialCode} onFound={applyInvite} />}
+
+      {step === "guests" && (
+        <form className="flex flex-1 flex-col" onSubmit={(e) => { e.preventDefault(); setStep("photo"); }}>
+          <h2 className="h-display mt-6 mb-2 text-[29px]">Anyone with you today?</h2>
+          <p className="text-[15.5px] text-ink-2">{guests.length ? `${host?.full_name} is expecting these people. Change it if needed.` : "Add anyone who came with you."}</p>
+          <div className="mt-4"><Guests guests={guests} setGuests={setGuests} /></div>
+          <div className="flex-1" />
+          <button className="btn mt-6 w-full">Continue</button>
+        </form>
+      )}
 
       {step === "details" && (
         <form className="flex flex-1 flex-col" onSubmit={(e) => { e.preventDefault(); setStep("host"); }}>
           <h2 className="h-display mt-6 mb-2 text-[29px]">Tell us about you</h2>
           <Field label="Full name" required>
-            <input className="input" required autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+            <input className="input" required maxLength={120} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Company">
-            <input className="input" autoComplete="organization" value={company} onChange={(e) => setCompany(e.target.value)} />
+            <input className="input" maxLength={120} autoComplete="organization" value={company} onChange={(e) => setCompany(e.target.value)} />
           </Field>
           <Field label="Mobile number" optional>
-            <input className="input" type="tel" autoComplete="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+            <input className="input" type="tel" maxLength={30} autoComplete="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} />
           </Field>
-          <Field label="People with you">
-            <div className="flex flex-col gap-2">
-              {guests.length === 0 && <p className="text-[15px] text-ink-2">Just me</p>}
-              {guests.map((g, i) => (
-                <div key={i} className="flex gap-2">
-                  <input
-                    className="input" required aria-label={`Person ${i + 2} full name`} placeholder="Full name"
-                    value={g} onChange={(e) => setGuests(guests.map((x, j) => (j === i ? e.target.value : x)))}
-                  />
-                  <button type="button" aria-label="Remove person" className="grid size-[52px] shrink-0 place-items-center rounded-xl border-[1.5px] border-line-input bg-surface"
-                    onClick={() => setGuests(guests.filter((_, j) => j !== i))}>
-                    <X className="size-5" />
-                  </button>
-                </div>
-              ))}
-              <button type="button" className="flex min-h-11 items-center gap-1.5 self-start font-semibold text-brand" onClick={() => setGuests([...guests, ""])}>
-                <Plus className="size-5" /> Add a person
-              </button>
-            </div>
-          </Field>
+          <Field label="People with you"><Guests guests={guests} setGuests={setGuests} /></Field>
           <Field label="Purpose of visit">
             <div className="flex flex-wrap gap-2">
               {PURPOSES.map((p) => (
@@ -146,7 +218,7 @@ export function KioskFlow() {
         </form>
       )}
 
-      {step === "host" && <HostStep host={host} setHost={setHost} onNext={() => setStep("photo")} />}
+      {step === "host" && <HostStep api={api} host={host} setHost={setHost} onNext={() => setStep("photo")} />}
 
       {step === "photo" && (
         <PhotoStep photo={photo} setPhoto={setPhoto} busy={busy} error={error} onSubmit={checkIn} />
@@ -168,7 +240,7 @@ export function KioskFlow() {
         </Finished>
       )}
 
-      {step === "leave" && <LeaveStep onLeft={() => setStep("left")} />}
+      {step === "leave" && api.findOpen && api.signOut && <LeaveStep api={api} onLeft={() => setStep("left")} />}
 
       {step === "left" && (
         <Finished title="You're signed out." lead="Thanks for visiting Novelty Labels. Have a good day." onDone={reset} />
@@ -177,7 +249,7 @@ export function KioskFlow() {
   );
 }
 
-function Welcome({ onWalkIn, onLeave }: { onWalkIn: () => void; onLeave: () => void }) {
+function Welcome({ onInvite, onWalkIn, onLeave }: { onInvite: () => void; onWalkIn: () => void; onLeave?: () => void }) {
   return (
     <>
       <Image src="/logo.png" alt="Novelty Labels" width={136} height={34} className="h-[34px] w-auto self-start" priority />
@@ -186,10 +258,10 @@ function Welcome({ onWalkIn, onLeave }: { onWalkIn: () => void; onLeave: () => v
         <h1 className="h-display my-3 text-[38px] leading-[1.05]">Welcome to<br />Novelty Labels.</h1>
         <p className="text-[15.5px] leading-relaxed text-ink-2">Takes about a minute. Your host is told as soon as you&apos;re in.</p>
       </div>
-      {/* ponytail: "I have an invite" tile arrives with the invites slice. */}
       <div className="flex flex-col gap-2.5">
-        <Tile primary icon={<User />} title="Check in" sub="Tell us who you're here to see" onClick={onWalkIn} />
-        <Tile icon={<LogOut />} title="I'm leaving" sub="Sign out of your visit" onClick={onLeave} />
+        <Tile primary icon={<Ticket />} title="I have an invite" sub="Use the code from your invitation" onClick={onInvite} />
+        <Tile icon={<User />} title="No invite" sub="Tell us who you're here to see" onClick={onWalkIn} />
+        {onLeave && <Tile icon={<LogOut />} title="I'm leaving" sub="Sign out of your visit" onClick={onLeave} />}
       </div>
       <p className="mt-5 text-[12.5px] text-muted">Need a hand? Ask at reception.</p>
     </>
@@ -210,17 +282,89 @@ function Tile({ primary, icon, title, sub, onClick }: { primary?: boolean; icon:
   );
 }
 
-function HostStep({ host, setHost, onNext }: { host: Host | null; setHost: (h: Host) => void; onNext: () => void }) {
+function InviteStep({ api, initialCode, onFound }: { api: FlowApi; initialCode: string; onFound: (i: Invite) => void }) {
+  const [code, setCode] = useState(initialCode);
+  const [found, setFound] = useState<Invite | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function look(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const i = await api.redeemInvite(code).catch(() => null);
+    setBusy(false);
+    if (!i) return setError("That code isn't valid today. Check it, or go back and check in without an invite.");
+    setFound(i);
+  }
+
+  if (found) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <h2 className="h-display mt-6 mb-4 text-[29px]">Is this you?</h2>
+        <div className="rounded-2xl border-[1.5px] border-line bg-surface px-4 py-1 text-sm">
+          <Row k="Name" v={found.visitor_name} />
+          {found.visitor_company && <Row k="Company" v={found.visitor_company} />}
+          <Row k="Visiting" v={found.host_name} />
+        </div>
+        <div className="flex-1" />
+        <div className="mt-6 flex gap-2.5">
+          <button className="btn-ghost flex-1" onClick={() => { setFound(null); setCode(""); }}>Not me</button>
+          <button className="btn flex-[2]" onClick={() => onFound(found)}>Yes, that&apos;s me</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form className="flex flex-1 flex-col" onSubmit={look}>
+      <h2 className="h-display mt-6 mb-2 text-[29px]">Your invite code</h2>
+      <p className="mb-4 text-[15.5px] text-ink-2">It&apos;s in your invitation email: six letters and numbers.</p>
+      <input className="input text-center font-display text-2xl tracking-[.3em] uppercase" maxLength={7} autoFocus
+        autoComplete="off" autoCapitalize="characters" aria-label="Invite code" placeholder="XXX-XXX"
+        value={code} onChange={(e) => setCode(e.target.value)} required />
+      {error && <p role="alert" className="mt-3 text-sm font-medium text-danger">{error}</p>}
+      <div className="flex-1" />
+      <button className="btn mt-6 w-full" disabled={busy || code.replace(/[^a-z0-9]/gi, "").length !== 6}>
+        {busy ? "Checking…" : "Continue"}
+      </button>
+    </form>
+  );
+}
+
+function Guests({ guests, setGuests }: { guests: string[]; setGuests: (g: string[]) => void }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {guests.length === 0 && <p className="text-[15px] text-ink-2">Just me</p>}
+      {guests.map((g, i) => (
+        <div key={i} className="flex gap-2">
+          <input
+            className="input" required maxLength={120} aria-label={`Person ${i + 2} full name`} placeholder="Full name"
+            value={g} onChange={(e) => setGuests(guests.map((x, j) => (j === i ? e.target.value : x)))}
+          />
+          <button type="button" aria-label="Remove person" className="grid size-[52px] shrink-0 place-items-center rounded-xl border-[1.5px] border-line-input bg-surface"
+            onClick={() => setGuests(guests.filter((_, j) => j !== i))}>
+            <X className="size-5" />
+          </button>
+        </div>
+      ))}
+      {guests.length < 20 && (
+        <button type="button" className="flex min-h-11 items-center gap-1.5 self-start font-semibold text-brand" onClick={() => setGuests([...guests, ""])}>
+          <Plus className="size-5" /> Add a person
+        </button>
+      )}
+    </div>
+  );
+}
+
+function HostStep({ api, host, setHost, onNext }: { api: FlowApi; host: Host | null; setHost: (h: Host) => void; onNext: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Host[]>([]);
   useEffect(() => {
     if (!q.trim()) return;
-    const t = setTimeout(async () => {
-      const { data } = await supabase.rpc("kiosk_search_hosts", { q });
-      setHits((data as Host[]) ?? []);
-    }, 200);
+    const t = setTimeout(async () => setHits(await api.searchHosts(q).catch(() => [])), 200);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, api]);
   const reception: Host = { id: null, full_name: "Reception", department: null };
   const shown = q.trim() ? hits : [];
 
@@ -287,23 +431,19 @@ function PhotoStep({ photo, setPhoto, busy, error, onSubmit }: { photo: Blob | n
   );
 }
 
-function LeaveStep({ onLeft }: { onLeft: () => void }) {
+function LeaveStep({ api, onLeft }: { api: FlowApi; onLeft: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<OpenVisit[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
     if (q.trim().length < 3) return;
-    const t = setTimeout(async () => {
-      const { data } = await supabase.rpc("kiosk_find_open_visits", { q });
-      setHits((data as OpenVisit[]) ?? []);
-    }, 250);
+    const t = setTimeout(async () => setHits(await api.findOpen!(q).catch(() => [])), 250);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, api]);
   const shown = q.trim().length >= 3 ? hits : [];
 
   async function signOut(id: string) {
-    const { data, error } = await supabase.rpc("kiosk_sign_out", { p_visit_id: id });
-    if (error || !data) return setError("We couldn't sign you out. Please ask at reception.");
+    if (!(await api.signOut!(id))) return setError("We couldn't sign you out. Please ask at reception.");
     onLeft();
   }
 
@@ -335,7 +475,7 @@ function LeaveStep({ onLeft }: { onLeft: () => void }) {
   );
 }
 
-function Finished({ title, lead, onDone, children }: { title: string; lead: string; onDone: () => void; children?: ReactNode }) {
+export function Finished({ title, lead, onDone, children }: { title: string; lead: string; onDone?: () => void; children?: ReactNode }) {
   return (
     <>
       <div className="flex flex-1 flex-col justify-center">
@@ -344,8 +484,12 @@ function Finished({ title, lead, onDone, children }: { title: string; lead: stri
         <p className="text-[15.5px] leading-relaxed text-ink-2">{lead}</p>
         {children}
       </div>
-      <button className="btn-ghost w-full" onClick={onDone}>Done</button>
-      <p className="mt-2.5 text-center text-[13px] text-muted">Back to the start in a few seconds</p>
+      {onDone && (
+        <>
+          <button className="btn-ghost w-full" onClick={onDone}>Done</button>
+          <p className="mt-2.5 text-center text-[13px] text-muted">Back to the start in a few seconds</p>
+        </>
+      )}
     </>
   );
 }
@@ -363,7 +507,7 @@ function Field({ label, required, optional, children }: { label: string; require
   );
 }
 
-function Row({ k, v }: { k: string; v: string }) {
+export function Row({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex justify-between gap-3 border-t border-[#EEF2EF] py-3 first:border-t-0">
       <span className="text-muted">{k}</span>

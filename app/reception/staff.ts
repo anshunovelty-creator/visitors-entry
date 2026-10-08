@@ -14,6 +14,10 @@ export const getStaff = cache(async () => {
   return { supabase, me, isReception: me.role !== "host" };
 });
 
+// Own-phone check-ins wait as "Arriving" this long for reception to confirm, then expire.
+export const ARRIVING_MINUTES = 30;
+export const arrivingCutoff = () => new Date(Date.now() - ARRIVING_MINUTES * 60_000).toISOString();
+
 export const TZ = "Asia/Kolkata";
 export const SOURCE = { desk: "Desk", own_phone: "Own phone", reception: "Reception" } as const;
 export const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: TZ });

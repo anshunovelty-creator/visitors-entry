@@ -98,6 +98,58 @@ try {
   assert.equal((await k.rpc("kiosk_sign_out", { p_visit_id: visit.visit_id })).data, true);
   assert.equal((await detail(r)).data.status, "checked_out");
 
+  // ---- invites: host creates (RLS), desk redeems, invite decides the host and works once
+  const { data: today } = await a.rpc("office_today");
+  const code = `T${tag.slice(0, 5).toUpperCase().replace(/[^A-Z0-9]/g, "Z")}`;
+  const { data: inv, error: ei } = await a.from("invites")
+    .insert({ host_id: hostA.id, visitor_name: `Ina ${tag}`, visit_date: today, code }).select("id").single();
+  assert.ifError(ei);
+  assert.ok((await b.from("invites").insert({ host_id: hostA.id, visitor_name: "x", visit_date: today, code: "XXXXXX" })).error, "can't invite for someone else");
+  await a.from("invite_guests").insert({ invite_id: inv.id, full_name: "Gina Guest" });
+  const { data: red } = await k.rpc("kiosk_redeem_invite", { p_code: `${code.slice(0, 3)}-${code.slice(3).toLowerCase()}` }).single();
+  assert.deepEqual([red.host_name, red.guests], [`Zyx${tag} Alpha`, ["Gina Guest"]]);
+  const { data: [fromInvite], error: eci } = await k.rpc("kiosk_check_in", {
+    p_visitor_name: `Ina ${tag}`, p_company: "", p_mobile: "", p_purpose: "", p_host_id: hostB.id,
+    p_guests: ["Gina Guest"], p_photo_path: null, p_invite_id: inv.id,
+  });
+  assert.ifError(eci);
+  created.visits.push(fromInvite.visit_id);
+  assert.equal(fromInvite.host_name, `Zyx${tag} Alpha`, "invite decides the host, not the form");
+  assert.ok((await k.rpc("kiosk_check_in", { p_visitor_name: "again", p_company: "", p_mobile: "", p_purpose: "", p_host_id: null, p_guests: [], p_photo_path: null, p_invite_id: inv.id })).error, "invite works once");
+
+  // ---- reception's one-click check-in of an expected visitor
+  const { data: inv2 } = await a.from("invites").insert({ host_id: hostA.id, visitor_name: `Exp ${tag}`, visit_date: today, code: `E${code.slice(1)}` }).select("id").single();
+  assert.ok((await a.rpc("staff_check_in_invite", { p_invite_id: inv2.id })).error, "hosts can't");
+  const { data: v2, error: ev2 } = await r.rpc("staff_check_in_invite", { p_invite_id: inv2.id });
+  assert.ifError(ev2);
+  created.visits.push(v2);
+
+  // ---- own phone: signed upload, arriving, reception confirms (as app/visit + confirmArrival do)
+  const phonePath = `phone/${randomUUID()}.jpg`;
+  const { data: signedUp } = await admin.storage.from("visit-photos").createSignedUploadUrl(phonePath);
+  assert.ifError((await client().storage.from("visit-photos").uploadToSignedUrl(phonePath, signedUp.token, jpeg, { contentType: "image/jpeg" })).error);
+  created.photos.push(phonePath);
+  assert.ok((await a.rpc("create_visit", { p_source: "own_phone", p_device: null, p_visitor_name: "x", p_company: null, p_mobile: null, p_purpose: null, p_host_id: null, p_guests: [], p_photo_path: null })).error, "core is server-only");
+  const { data: [pv], error: epv } = await admin.rpc("create_visit", {
+    p_source: "own_phone", p_device: null, p_visitor_name: `Pat ${tag}`, p_company: "", p_mobile: "", p_purpose: "",
+    p_host_id: hostA.id, p_guests: [], p_photo_path: phonePath, p_phone_token_hash: `smoke-${tag}`, p_origin_hash: `smoke-${tag}`,
+  });
+  assert.ifError(epv);
+  created.visits.push(pv.visit_id);
+  assert.equal(pv.status, "arriving");
+  assert.match(pv.code, /^\d{3}$/);
+  const confirm = (c) => c.from("visits").update({ status: "checked_in", checked_in_at: new Date().toISOString() })
+    .eq("id", pv.visit_id).eq("status", "arriving").select("id");
+  assert.equal((await confirm(a)).data.length, 0, "hosts can't confirm arrivals");
+  assert.equal((await confirm(r)).data.length, 1, "reception confirms");
+
+  // The public host search's exact or() filter, quoted so spaces and dots are safe.
+  const term = `Zyx${tag}`;
+  const { data: pub, error: epub } = await admin.from("staff").select("full_name").eq("active", true)
+    .or(`full_name.ilike."${term}*",full_name.ilike."* ${term}*"`).limit(8);
+  assert.ifError(epub);
+  assert.equal(pub.length, 3);
+
   // ---- revoke device, deactivate staff (as /admin does)
   await admin.from("kiosk_devices").update({ revoked_at: new Date().toISOString() }).eq("id", dev.id);
   assert.ok((await k.rpc("kiosk_whoami").single()).error, "revoked device is locked out");
