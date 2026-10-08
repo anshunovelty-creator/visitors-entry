@@ -156,6 +156,16 @@ assert.match(pv.code, /^[1-9][0-9]{2}$/);
 await rejects(asService(phoneCall, [neha, photo]), /bad photo path/, "phone can't claim a desk photo");
 await rejects(asService("select * from public.create_visit('desk', null, $1, null, null, null, null, null, null)", ["x".repeat(121)]), /too long/);
 
+// ---- host approval
+const respond = (uid, id, r) => as(uid, "select public.host_respond($1, $2) as ok", [id, r]);
+assert.equal((await respond(rahul, fromInvite.visit_id, "coming"))[0].ok, true, "host answers for own visitor");
+assert.equal((await db.query("select host_response from public.visits where id = $1", [fromInvite.visit_id])).rows[0].host_response, "coming");
+assert.equal((await respond(neha, fromInvite.visit_id, "unavailable"))[0].ok, false, "not someone else's");
+assert.equal((await respond(reception, fromInvite.visit_id, "unavailable"))[0].ok, false, "reception isn't the host");
+assert.equal((await respond(device, fromInvite.visit_id, "unavailable"))[0].ok, false, "nor is the desk");
+assert.equal((await respond(rahul, visit.visit_id, "coming"))[0].ok, false, "not after they've left");
+await rejects(respond(null, fromInvite.visit_id, "coming"), /permission denied/);
+
 // ---- helpers
 const short = async (n) => (await db.query("select public.short_name($1) as s", [n])).rows[0].s;
 assert.equal(await short("Priya"), "Priya");

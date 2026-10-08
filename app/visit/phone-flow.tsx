@@ -89,7 +89,10 @@ function Status({ token, onNew }: { token: string; onNew: () => void }) {
     return (
       <main className={main}>
         <Finished title={`You're all set, ${v.first}.`}
-          lead={v.host === "Reception" ? "Please take a seat. Reception will be with you shortly." : `${v.host} knows you're here. Please take a seat; they'll come to collect you.`}>
+          lead={v.host === "Reception" ? "Please take a seat. Reception will be with you shortly."
+            : v.hostResponse === "coming" ? `${v.host} is on their way down to meet you.`
+            : v.hostResponse === "unavailable" ? `${v.host} isn't available right now. Reception will look after you.`
+            : `${v.host} knows you're here. Please take a seat; they'll come to collect you.`}>
           <p className="mt-5 text-[14px] text-muted">Keep this page. When you leave, sign out here.</p>
         </Finished>
         <button className="btn w-full" disabled={busy} onClick={async () => {

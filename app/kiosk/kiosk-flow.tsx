@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Image from "next/image";
 import {
-  Camera, Check, ChevronLeft, ChevronRight, CircleHelp, Lock, LogOut, Plus, Search, Ticket, User, X,
+  Camera, Check, ChevronLeft, ChevronRight, CircleHelp, Lock, LogOut, Plus, ScanLine, Search, Ticket, User, X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { notifyDeskCheckIn } from "./actions";
+import { QrScanner } from "./qr-scanner";
 
 const PURPOSES = ["Meeting", "Interview", "Delivery", "Contractor", "Other"];
 const IDLE_MS = 60_000;
@@ -181,7 +182,7 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
         />
       )}
 
-      {step === "invite" && <InviteStep api={api} initialCode={initialCode} onFound={applyInvite} />}
+      {step === "invite" && <InviteStep api={api} initialCode={initialCode} onFound={applyInvite} scan={desk} />}
 
       {step === "guests" && (
         <form className="flex flex-1 flex-col" onSubmit={(e) => { e.preventDefault(); setStep("photo"); }}>
@@ -282,17 +283,19 @@ function Tile({ primary, icon, title, sub, onClick }: { primary?: boolean; icon:
   );
 }
 
-function InviteStep({ api, initialCode, onFound }: { api: FlowApi; initialCode: string; onFound: (i: Invite) => void }) {
+// scan: the desk tablet can read the QR from the invitation email with its camera.
+function InviteStep({ api, initialCode, onFound, scan }: { api: FlowApi; initialCode: string; onFound: (i: Invite) => void; scan?: boolean }) {
   const [code, setCode] = useState(initialCode);
   const [found, setFound] = useState<Invite | null>(null);
+  const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  async function look(e: FormEvent) {
-    e.preventDefault();
+  async function look(e?: FormEvent, c = code) {
+    e?.preventDefault();
     setBusy(true);
     setError("");
-    const i = await api.redeemInvite(code).catch(() => null);
+    const i = await api.redeemInvite(c).catch(() => null);
     setBusy(false);
     if (!i) return setError("That code isn't valid today. Check it, or go back and check in without an invite.");
     setFound(i);
@@ -316,10 +319,27 @@ function InviteStep({ api, initialCode, onFound }: { api: FlowApi; initialCode: 
     );
   }
 
+  if (scanning) {
+    return (
+      <QrScanner
+        onClose={() => setScanning(false)}
+        onCode={(c) => { setScanning(false); setCode(`${c.slice(0, 3)}-${c.slice(3)}`); look(undefined, c); }}
+      />
+    );
+  }
+
   return (
     <form className="flex flex-1 flex-col" onSubmit={look}>
       <h2 className="h-display mt-6 mb-2 text-[29px]">Your invite code</h2>
       <p className="mb-4 text-[15.5px] text-ink-2">It&apos;s in your invitation email: six letters and numbers.</p>
+      {scan && (
+        <>
+          <button type="button" className="btn mb-4 w-full" onClick={() => { setError(""); setScanning(true); }}>
+            <ScanLine className="size-5" /> Scan QR code
+          </button>
+          <p className="mb-3 text-center text-[13px] text-muted">or type it</p>
+        </>
+      )}
       <input className="input text-center font-display text-2xl tracking-[.3em] uppercase" maxLength={7} autoFocus
         autoComplete="off" autoCapitalize="characters" aria-label="Invite code" placeholder="XXX-XXX"
         value={code} onChange={(e) => setCode(e.target.value)} required />

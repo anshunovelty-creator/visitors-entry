@@ -1,6 +1,7 @@
 "use server";
 
 import { randomInt } from "node:crypto";
+import QRCode from "qrcode";
 import { refresh } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, siteOrigin } from "@/lib/email";
@@ -8,7 +9,7 @@ import { sendEmail, siteOrigin } from "@/lib/email";
 // No 0/O/1/I/L, so the code reads cleanly off an email and types easily at the desk.
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const newCode = () => Array.from({ length: 6 }, () => ALPHABET[randomInt(ALPHABET.length)]).join("");
-export type InviteResult = { code?: string; emailed?: boolean; emailError?: string; error?: string } | null;
+export type InviteResult = { code?: string; qrSvg?: string; emailed?: boolean; emailError?: string; error?: string } | null;
 
 // Hosts invite their own visitors (RLS: host_id must be the caller). Reception can too, as host.
 export async function createInvite(_prev: InviteResult, form: FormData): Promise<InviteResult> {
@@ -40,25 +41,49 @@ export async function createInvite(_prev: InviteResult, form: FormData): Promise
   if (guests.length) await supabase.from("invite_guests").insert(guests.map((full_name) => ({ invite_id: invite.id, full_name })));
 
   const pretty = `${invite.code.slice(0, 3)}-${invite.code.slice(3)}`;
+  // The QR holds the check-in link: a phone camera opens it, the desk tablet's scanner reads the code from it.
+  const link = `${await siteOrigin()}/visit?code=${invite.code}`;
+  const qr = { margin: 1, errorCorrectionLevel: "M" as const, color: { dark: "#0e1f18", light: "#ffffff" } };
+  const qrSvg = await QRCode.toString(link, { ...qr, type: "svg" });
   let emailError: string | undefined;
   if (email) {
     const { data: me } = await supabase.from("staff").select("full_name").eq("id", user.id).single();
     const when = new Date(`${date}T12:00:00+05:30`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" });
+    const host = me?.full_name ?? "Your host";
+    const png = (await QRCode.toBuffer(link, { ...qr, type: "png", width: 360 })).toString("base64");
     emailError = (await sendEmail(email, `Your visit to Novelty Labels on ${when}`, [
       `Hi ${name.split(" ")[0]},`,
       "",
-      `${me?.full_name ?? "Your host"} has invited you to Novelty Labels on ${when}.`,
+      `${host} has invited you to Novelty Labels on ${when}.`,
       "",
       `Your check-in code: ${pretty}`,
       "",
-      "When you arrive, check in on your phone with this link (or type the code at the reception tablet):",
-      `${await siteOrigin()}/visit?code=${invite.code}`,
+      "When you arrive, check in on your phone with this link, or show the QR code in this email to the reception tablet:",
+      link,
       "",
       "The code works once, on the day of your visit.",
-    ].join("\n"))) ?? undefined;
+    ].join("\n"), {
+      html: inviteHtml({ first: escapeHtml(name.split(" ")[0]), host: escapeHtml(host), when, code: pretty, link }),
+      attachments: [{ filename: "check-in-qr.png", content: png, content_id: "checkin-qr" }],
+    })) ?? undefined;
   }
   refresh();
-  return { code: pretty, emailed: !!email && !emailError, emailError };
+  return { code: pretty, qrSvg, emailed: !!email && !emailError, emailError };
+}
+
+const escapeHtml = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+function inviteHtml({ first, host, when, code, link }: { first: string; host: string; when: string; code: string; link: string }) {
+  return `<div style="font-family:system-ui,sans-serif;color:#0e1f18;max-width:480px">
+<p>Hi ${first},</p>
+<p>${host} has invited you to <b>Novelty Labels</b> on <b>${when}</b>.</p>
+<p style="margin:24px 0 8px">Your check-in code</p>
+<p style="font-size:30px;font-weight:700;letter-spacing:.15em;color:#10553f;margin:0">${code}</p>
+<p style="margin:24px 0 8px">At reception, show this QR code to the tablet:</p>
+<img src="cid:checkin-qr" width="180" height="180" alt="Check-in QR code ${code}" />
+<p style="margin-top:20px"><a href="${link}" style="color:#10553f;font-weight:600">Or check in on your phone</a></p>
+<p style="color:#6b7a72;font-size:13px">The code works once, on the day of your visit.</p>
+</div>`;
 }
 
 export async function cancelInvite(id: string) {

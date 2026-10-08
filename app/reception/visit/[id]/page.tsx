@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, Phone } from "lucide-react";
 import { signOutVisit } from "../../actions";
 import { clock, day, getStaff, initials, SOURCE } from "../../staff";
+import { HostReply } from "../../host-reply";
 
 type Visit = {
   id: string;
@@ -17,6 +18,8 @@ type Visit = {
   arrived_at: string;
   checked_in_at: string | null;
   checked_out_at: string | null;
+  host_id: string | null;
+  host_response: "coming" | "unavailable" | null;
   host: { full_name: string; department: string | null } | null;
   visit_guests: { id: string; full_name: string; checked_out_at: string | null }[];
 };
@@ -34,11 +37,11 @@ export default function VisitPage({ params }: PageProps<"/reception/visit/[id]">
 async function Detail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/.test(id)) notFound();
-  const { supabase, isReception } = await getStaff();
+  const { supabase, me, isReception } = await getStaff();
   // RLS hides other hosts' visitors, so a host opening someone else's link gets a 404.
   const { data } = await supabase
     .from("visits")
-    .select("id, visitor_name, company, mobile, purpose, photo_path, source, status, arrived_at, checked_in_at, checked_out_at, host:staff!visits_host_id_fkey(full_name, department), visit_guests(id, full_name, checked_out_at)")
+    .select("id, visitor_name, company, mobile, purpose, photo_path, source, status, arrived_at, checked_in_at, checked_out_at, host_id, host_response, host:staff!visits_host_id_fkey(full_name, department), visit_guests(id, full_name, checked_out_at)")
     .eq("id", id)
     .maybeSingle();
   if (!data) notFound();
@@ -76,7 +79,10 @@ async function Detail({ params }: { params: Promise<{ id: string }> }) {
               ? <a href={`tel:${v.mobile}`} className="inline-flex items-center gap-1.5 font-medium text-brand"><Phone className="size-4" />{v.mobile}</a>
               : "—"}</dd>
             <dt className="text-muted">Visiting</dt>
-            <dd>{v.host ? [v.host.full_name, v.host.department].filter(Boolean).join(" · ") : "Reception"}</dd>
+            <dd className="flex flex-wrap items-center gap-2">
+              {v.host ? [v.host.full_name, v.host.department].filter(Boolean).join(" · ") : "Reception"}
+              {v.host && ["arriving", "checked_in"].includes(v.status) && <HostReply visitId={v.id} response={v.host_response} mine={v.host_id === me.id} />}
+            </dd>
             <dt className="text-muted">Purpose</dt>
             <dd className="break-words">{v.purpose ?? "—"}</dd>
             <dt className="text-muted">Checked in</dt>

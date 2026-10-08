@@ -25,14 +25,21 @@ export function InviteForm({ today }: { today: string }) {
       </form>
       {state?.error && <p role="alert" className="text-sm font-medium text-danger">{state.error}</p>}
       {state?.code && (
-        <p role="status" className="rounded-xl bg-tint p-3 text-[14px]">
+        <div role="status" className="flex flex-wrap items-center gap-4 rounded-xl bg-tint p-3 text-[14px]">
+          {state.qrSvg && (
+            // Generated on our server from our own link, so the markup is trusted.
+            <span className="w-28 shrink-0 rounded-lg bg-white p-1.5 [&>svg]:h-auto [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: state.qrSvg }} />
+          )}
+          <p className="min-w-0 flex-1">
           Invite code <b className="font-display text-xl tracking-[.2em] text-brand">{state.code}</b>
           <span className="block text-[12.5px] text-ink-2">
             {state.emailed ? "We've emailed it to them, with a check-in link."
               : state.emailError ? `Couldn't email it (${state.emailError}). Share the code with them yourself.`
               : "Share this code with them. They enter it at the desk or on their phone."}
+            {" "}Screenshot the QR to send it on WhatsApp; the desk tablet can scan it.
           </span>
-        </p>
+          </p>
+        </div>
       )}
     </div>
   );

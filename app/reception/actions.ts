@@ -53,6 +53,14 @@ export async function resendHostEmail(visitId: string) {
   refresh();
 }
 
+// The host's own answer from the app. host_respond only accepts it for the caller's own open visit.
+export async function hostRespond(visitId: string, response: "coming" | "unavailable") {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("host_respond", { p_visit_id: visitId, p_response: response });
+  if (data !== true) throw new Error("You can only answer for your own visitor while they're here.");
+  refresh();
+}
+
 export async function signOutStaff() {
   const supabase = await createClient();
   await supabase.auth.signOut();

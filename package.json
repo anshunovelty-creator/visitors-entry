@@ -8,13 +8,14 @@
     "start": "next start",
     "lint": "eslint",
     "admin": "node --env-file=.env.local scripts/admin.mjs",
-    "test": "node --test app/reception/log/filters.test.ts",
+    "test": "node --test app/reception/log/filters.test.ts app/kiosk/qr-code.test.ts lib/sign.test.ts",
     "test:db": "node supabase/test.mjs",
     "test:live": "node --env-file=.env.local scripts/smoke.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.3",
+    "jsqr": "^1.4.0",
     "lucide-react": "^1.52.0",
     "next": "16.4.0",
     "qrcode": "^1.5.4",

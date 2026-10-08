@@ -85,13 +85,14 @@ export async function phoneCheckIn(i: PhoneCheckIn): Promise<{ token: string } |
 export type PhoneVisit = {
   status: "arriving" | "checked_in" | "checked_out" | "declined" | "expired";
   code: string | null; first: string; host: string; checkedInAt: string | null; guests: number;
+  hostResponse: "coming" | "unavailable" | null;
 };
 
 export async function visitStatus(token: string): Promise<PhoneVisit | null> {
   if (!token || token.length > 64) return null;
   const { data: v } = await createAdminClient()
     .from("visits")
-    .select("status, code, visitor_name, arrived_at, checked_in_at, host:staff!visits_host_id_fkey(full_name), visit_guests(checked_out_at)")
+    .select("status, code, visitor_name, arrived_at, checked_in_at, host_response, host:staff!visits_host_id_fkey(full_name), visit_guests(checked_out_at)")
     .eq("phone_token_hash", sha(token))
     .maybeSingle();
   if (!v) return null;
@@ -103,6 +104,7 @@ export async function visitStatus(token: string): Promise<PhoneVisit | null> {
     host: (v.host as unknown as { full_name: string } | null)?.full_name ?? "Reception",
     checkedInAt: v.checked_in_at,
     guests: (v.visit_guests as { checked_out_at: string | null }[]).filter((g) => !g.checked_out_at).length,
+    hostResponse: v.host_response,
   };
 }
 

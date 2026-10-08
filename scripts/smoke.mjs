@@ -143,6 +143,12 @@ try {
   assert.equal((await confirm(a)).data.length, 0, "hosts can't confirm arrivals");
   assert.equal((await confirm(r)).data.length, 1, "reception confirms");
 
+  // ---- host approval: only the visitor's own host can answer, from the app
+  assert.equal((await b.rpc("host_respond", { p_visit_id: pv.visit_id, p_response: "unavailable" })).data, false, "not another host");
+  assert.equal((await r.rpc("host_respond", { p_visit_id: pv.visit_id, p_response: "unavailable" })).data, false, "not reception");
+  assert.equal((await a.rpc("host_respond", { p_visit_id: pv.visit_id, p_response: "coming" })).data, true);
+  assert.equal((await r.from("visits").select("host_response").eq("id", pv.visit_id).single()).data.host_response, "coming", "reception sees the answer");
+
   // The public host search's exact or() filter, quoted so spaces and dots are safe.
   const term = `Zyx${tag}`;
   const { data: pub, error: epub } = await admin.from("staff").select("full_name").eq("active", true)

@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { MailCheck, MailWarning, TriangleAlert, Users } from "lucide-react";
 import { checkInExpected, confirmArrival, declineArrival, resendHostEmail, signOutVisit } from "./actions";
+import { HostReply } from "./host-reply";
 import { LiveRefresh } from "./live";
 import { arrivingCutoff, clock, day, getStaff, initials, SOURCE } from "./staff";
 
@@ -16,6 +17,8 @@ type Visit = {
   code: string | null;
   host_email_sent_at: string | null;
   host_email_error: string | null;
+  host_id: string | null;
+  host_response: "coming" | "unavailable" | null;
   host: { full_name: string } | null;
   visit_guests: { id: string; full_name: string; checked_out_at: string | null }[];
 };
@@ -27,7 +30,7 @@ type Expected = {
   invite_guests: { count: number }[];
 };
 
-const VISIT_FIELDS = "id, visitor_name, company, photo_path, source, arrived_at, checked_in_at, code, host_email_sent_at, host_email_error, host:staff!visits_host_id_fkey(full_name), visit_guests(id, full_name, checked_out_at)";
+const VISIT_FIELDS = "id, visitor_name, company, photo_path, source, arrived_at, checked_in_at, code, host_email_sent_at, host_email_error, host_id, host_response, host:staff!visits_host_id_fkey(full_name), visit_guests(id, full_name, checked_out_at)";
 
 export default function ReceptionPage() {
   return (
@@ -38,7 +41,7 @@ export default function ReceptionPage() {
 }
 
 async function Lobby() {
-  const { supabase, isReception } = await getStaff();
+  const { supabase, me, isReception } = await getStaff();
   const cutoff = arrivingCutoff();
   // Own-phone arrivals nobody confirmed in time. Reception only; RLS makes it a no-op for hosts anyway.
   if (isReception) await supabase.from("visits").update({ status: "expired" }).eq("status", "arriving").lt("arrived_at", cutoff);
@@ -100,6 +103,7 @@ async function Lobby() {
                     {[v.company, `visiting ${v.host?.full_name ?? "Reception"}`, `since ${clock(v.arrived_at)}`].filter(Boolean).join(" · ")}
                   </span>
                 </span>
+                {v.host && <HostReply visitId={v.id} response={v.host_response} mine={v.host_id === me.id} />}
                 <span className="rounded-lg bg-surface px-3 py-1 font-display text-2xl font-semibold tracking-[.12em] text-brand" aria-label={`Code ${v.code}`}>{v.code}</span>
                 {isReception && (
                   <>
@@ -143,6 +147,7 @@ async function Lobby() {
                       : clock(v.checked_in_at)}
                   </span>
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${v.source === "desk" ? "bg-tint text-brand" : "bg-warn-bg text-warn-ink"}`}>{SOURCE[v.source]}</span>
+                  {v.host && <HostReply visitId={v.id} response={v.host_response} mine={v.host_id === me.id} />}
                   {v.host && (v.host_email_error
                     ? isReception
                       ? <form action={resendHostEmail.bind(null, v.id)}>

@@ -1,11 +1,18 @@
 import "server-only";
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/server";
+import { sign } from "@/lib/sign";
 
 // Sends through Resend's HTTP API when RESEND_API_KEY is set. Without it: printed to the terminal
 // in development, and reported as an error in production so the lobby shows "Resend".
 // Returns an error message, or null when sent.
-export async function sendEmail(to: string, subject: string, text: string): Promise<string | null> {
+type Extra = {
+  html?: string;
+  // Inline images: reference as <img src="cid:CONTENT_ID"> in the html.
+  attachments?: { filename: string; content: string /* base64 */; content_id: string }[];
+};
+
+export async function sendEmail(to: string, subject: string, text: string, extra: Extra = {}): Promise<string | null> {
   const key = process.env.RESEND_API_KEY;
   if (!key) {
     if (process.env.NODE_ENV === "production") return "Email isn't set up (RESEND_API_KEY).";
@@ -16,7 +23,7 @@ export async function sendEmail(to: string, subject: string, text: string): Prom
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: process.env.EMAIL_FROM ?? "Novelty Labels Visitors <onboarding@resend.dev>", to, subject, text }),
+      body: JSON.stringify({ from: process.env.EMAIL_FROM ?? "Novelty Labels Visitors <onboarding@resend.dev>", to, subject, text, ...extra }),
     });
     if (res.ok) return null;
     const body = await res.json().catch(() => ({}));
@@ -31,6 +38,17 @@ export async function sendEmail(to: string, subject: string, text: string): Prom
 export async function siteOrigin() {
   const h = await headers();
   return `${h.get("x-forwarded-proto") ?? "https"}://${h.get("x-forwarded-host") ?? h.get("host")}`;
+}
+
+export type HostResponse = "coming" | "unavailable";
+
+// Server-only secret for the host's reply links. Its own variable if set, else the service-role key,
+// which never leaves the server either. Changing it invalidates links already emailed.
+export const linkSecret = () => process.env.HOST_LINK_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+// One-click reply from the email, no sign-in needed: the link is signed for this visit and this answer.
+async function responseLink(visitId: string, response: HostResponse) {
+  return `${await siteOrigin()}/respond/${visitId}?r=${response}&s=${sign(linkSecret(), visitId, response)}`;
 }
 
 // "Your visitor has arrived." Records the outcome on the visit either way, so the lobby can offer Resend.
@@ -52,6 +70,9 @@ export async function notifyHost(visitId: string) {
     `${v.company ? `${v.visitor_name} (${v.company})` : v.visitor_name} checked in at reception at ${at}.`,
     ...(v.purpose ? [`Purpose: ${v.purpose}`] : []),
     ...(guests.length ? [`With them: ${guests.join(", ")}`] : []),
+    "",
+    `I'm coming down: ${await responseLink(visitId, "coming")}`,
+    `Not available:   ${await responseLink(visitId, "unavailable")}`,
     "",
     `Their details and photo: ${await siteOrigin()}/reception/visit/${visitId}`,
   ];
