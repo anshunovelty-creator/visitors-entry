@@ -9,7 +9,8 @@
     "lint": "eslint",
     "admin": "node --env-file=.env.local scripts/admin.mjs",
     "test": "node --test app/reception/log/filters.test.ts",
-    "test:db": "node supabase/test.mjs"
+    "test:db": "node supabase/test.mjs",
+    "test:live": "node --env-file=.env.local scripts/smoke.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
