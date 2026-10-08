@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/* Paper & Ink: see docs/superpowers/specs/2026-10-08-visitors-entry-design.md */
+@theme {
+  --color-brand: #10553f;
+  --color-brand-hover: #0c4332;
+  --color-tint: #eaf3ee;
+  --color-paper: #fafaf7;
+  --color-surface: #ffffff;
+  --color-ink: #0e1f18;
+  --color-ink-2: #4a5b53;
+  --color-muted: #6b7a72;
+  --color-line: #dce5e0;
+  --color-line-input: #cbd8d1;
+  --color-warn-bg: #fef3c7;
+  --color-warn-ink: #92400e;
+  --color-warn: #d97706;
+  --color-danger: #b42318;
+
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-saira), var(--font-inter), sans-serif;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex h-14 items-center justify-center gap-2 rounded-[14px] bg-brand px-5 font-display text-lg font-semibold text-white transition-colors hover:bg-brand-hover disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex h-14 items-center justify-center gap-2 rounded-[14px] border-[1.5px] border-line-input bg-surface px-5 font-display text-lg font-semibold text-ink;
+  }
+  .btn-sm {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-[10px] px-4 font-display text-[15px] font-semibold;
+  }
+  .input {
+    @apply h-[52px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-base outline-none focus:border-2 focus:border-brand focus:ring-4 focus:ring-brand/12;
+  }
+  .label {
+    @apply mb-1.5 block text-[13.5px] font-semibold;
+  }
+  .chip {
+    @apply min-h-11 rounded-full border-[1.5px] border-line-input bg-surface px-4 text-[14.5px] font-medium;
+  }
+  .chip[aria-pressed="true"] {
+    @apply border-brand bg-brand text-white;
+  }
+  .h-display {
+    @apply font-display font-semibold leading-tight;
+  }
+  .av {
+    @apply grid size-10 shrink-0 place-items-center rounded-full bg-tint font-display text-[15px] font-semibold text-brand;
+  }
+}
