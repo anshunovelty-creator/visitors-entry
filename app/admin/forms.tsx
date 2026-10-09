@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { addDevice, addStaff, newDeviceCode, resetPassword } from "./actions";
+import { addDevice, addStaff, addWatch, newDeviceCode, resetPassword } from "./actions";
 
 export function AddStaffForm() {
   const [error, action, pending] = useActionState(addStaff, null);
@@ -78,5 +78,21 @@ export function DeviceCodeButton({ id }: { id: string }) {
       {state?.error && <p role="alert" className="text-sm font-medium text-danger">{state.error}</p>}
       {state?.code && <Code code={state.code} />}
     </div>
+  );
+}
+
+export function AddWatchForm() {
+  const [error, action, pending] = useActionState(addWatch, null);
+  return (
+    <form action={action} className="grid gap-3 p-4 sm:grid-cols-2">
+      <label><span className="label">Full name</span><input name="full_name" maxLength={120} className="input" /></label>
+      <label><span className="label">Mobile number</span><input name="mobile" type="tel" maxLength={30} className="input" /></label>
+      <label className="sm:col-span-2">
+        <span className="label">Reason <span className="font-normal text-muted">reception sees this; the visitor doesn&apos;t</span></span>
+        <input name="reason" required maxLength={200} className="input" placeholder="e.g. Banned after incident on 3 Oct" />
+      </label>
+      {error && <p role="alert" className="text-sm font-medium text-danger sm:col-span-2">{error}</p>}
+      <button className="btn sm:col-span-2" disabled={pending}>{pending ? "Adding…" : "Add to watchlist"}</button>
+    </form>
   );
 }

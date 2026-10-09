@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { History, LayoutGrid, LogOut, Settings, Ticket } from "lucide-react";
+import { History, KeyRound, LayoutGrid, LogOut, Settings, Siren, Ticket } from "lucide-react";
 import { signOutStaff } from "./actions";
 import { getStaff, initials } from "./staff";
 
@@ -29,6 +29,7 @@ async function Nav() {
         <Link href="/reception" className={item}><LayoutGrid className="size-5" /><span className="hidden sm:inline">{me.role === "host" ? "My visitors" : "Lobby"}</span></Link>
         <Link href="/reception/invites" className={item}><Ticket className="size-5" /><span className="hidden sm:inline">Invites</span></Link>
         <Link href="/reception/log" className={item}><History className="size-5" /><span className="hidden sm:inline">Visit log</span></Link>
+        <Link href="/reception/roll-call" className={item.replace("text-ink-2", "text-danger")}><Siren className="size-5" /><span className="hidden sm:inline">Roll call</span></Link>
         {me.role === "admin" && <Link href="/admin" className={item}><Settings className="size-5" /><span className="hidden sm:inline">Admin</span></Link>}
       </nav>
       <div className="flex items-center gap-2.5 lg:mt-auto lg:border-t lg:border-[#EEF2EF] lg:p-3">
@@ -37,6 +38,9 @@ async function Nav() {
           <b className="block truncate text-[13.5px]">{me.full_name}</b>
           <span className="text-[12.5px] capitalize text-muted">{me.role}</span>
         </span>
+        <Link href="/account" aria-label="Change password" className="grid size-11 place-items-center rounded-[10px] text-muted hover:bg-tint">
+          <KeyRound className="size-5" />
+        </Link>
         <form action={signOutStaff}>
           <button aria-label="Sign out" className="grid size-11 place-items-center rounded-[10px] text-muted hover:bg-tint">
             <LogOut className="size-5" />

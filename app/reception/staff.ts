@@ -9,8 +9,9 @@ export const getStaff = cache(async () => {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: me } = await supabase.from("staff").select("id, full_name, role").eq("id", user.id).eq("active", true).maybeSingle();
+  const { data: me } = await supabase.from("staff").select("id, full_name, role, must_change_password").eq("id", user.id).eq("active", true).maybeSingle();
   if (!me) redirect("/login");
+  if (me.must_change_password) redirect("/account"); // the admin-given password gets replaced first
   return { supabase, me, isReception: me.role !== "host" };
 });
 

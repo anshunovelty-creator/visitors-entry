@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { MailCheck, MailWarning, TriangleAlert, Users } from "lucide-react";
+import { MailCheck, MailWarning, ShieldAlert, TriangleAlert, Users } from "lucide-react";
 import { checkInExpected, confirmArrival, declineArrival, resendHostEmail, signOutVisit } from "./actions";
 import { HostReply } from "./host-reply";
 import { LiveRefresh } from "./live";
@@ -19,6 +19,7 @@ type Visit = {
   host_email_error: string | null;
   host_id: string | null;
   host_response: "coming" | "unavailable" | null;
+  watchlist: { reason: string } | null;
   host: { full_name: string } | null;
   visit_guests: { id: string; full_name: string; checked_out_at: string | null }[];
 };
@@ -30,7 +31,7 @@ type Expected = {
   invite_guests: { count: number }[];
 };
 
-const VISIT_FIELDS = "id, visitor_name, company, photo_path, source, arrived_at, checked_in_at, code, host_email_sent_at, host_email_error, host_id, host_response, host:staff!visits_host_id_fkey(full_name), visit_guests(id, full_name, checked_out_at)";
+const VISIT_FIELDS = "id, visitor_name, company, photo_path, source, arrived_at, checked_in_at, code, host_email_sent_at, host_email_error, host_id, host_response, watchlist(reason), host:staff!visits_host_id_fkey(full_name), visit_guests(id, full_name, checked_out_at)";
 
 export default function ReceptionPage() {
   return (
@@ -92,13 +93,18 @@ async function Lobby() {
 
       {arriving.length > 0 && (
         <section className="overflow-hidden rounded-2xl border-[1.5px] border-warn bg-warn-bg/40">
-          <h2 className="h-display border-b border-warn/30 px-4 py-3.5 text-[17px]">Arriving: match the code on their phone</h2>
+          <h2 className="h-display border-b border-warn/30 px-4 py-3.5 text-[17px]">Arriving: check them, then confirm</h2>
           <ul>
             {arriving.map((v) => (
               <li key={v.id} className="flex flex-wrap items-center gap-3 border-b border-warn/20 px-4 py-3 last:border-b-0">
                 {avatar(v)}
                 <span className="min-w-0 flex-1">
                   <b className="block truncate text-[15px]">{v.visitor_name}{v.visit_guests.length > 0 && ` +${v.visit_guests.length}`}</b>
+                  {v.watchlist && (
+                    <span className="mt-0.5 inline-flex items-center gap-1 rounded-md bg-danger px-2 py-0.5 text-[12px] font-semibold text-white">
+                      <ShieldAlert className="size-3.5" />Watchlist: {v.watchlist.reason}
+                    </span>
+                  )}
                   <span className="block truncate text-[13px] text-ink-2">
                     {[v.company, `visiting ${v.host?.full_name ?? "Reception"}`, `since ${clock(v.arrived_at)}`].filter(Boolean).join(" · ")}
                   </span>

@@ -3,8 +3,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { revokeDevice, setStaffActive, updateStaff } from "./actions";
-import { AddDeviceForm, AddStaffForm, DeviceCodeButton, ResetPasswordForm } from "./forms";
+import { removeWatch, revokeDevice, setStaffActive, updateStaff } from "./actions";
+import { AddDeviceForm, AddStaffForm, AddWatchForm, DeviceCodeButton, ResetPasswordForm } from "./forms";
 
 const TZ = "Asia/Kolkata";
 const when = (iso: string) =>
@@ -22,12 +22,14 @@ async function Admin() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: me } = await supabase.from("staff").select("role, active").eq("id", user.id).maybeSingle();
+  const { data: me } = await supabase.from("staff").select("role, active, must_change_password").eq("id", user.id).maybeSingle();
+  if (me?.must_change_password) redirect("/account");
   if (me?.role !== "admin" || !me.active) return <p className="p-8 text-ink-2">This page is for admins.</p>;
 
-  const [{ data: staff }, { data: devices }] = await Promise.all([
+  const [{ data: staff }, { data: devices }, { data: watch }] = await Promise.all([
     supabase.from("staff").select("id, full_name, email, department, role, active").order("active", { ascending: false }).order("full_name"),
     supabase.from("kiosk_devices").select("id, name, enrollment_code_hash, last_seen_at, revoked_at").order("created_at"),
+    supabase.from("watchlist").select("id, full_name, mobile, reason, created_at").order("created_at", { ascending: false }),
   ]);
 
   return (
@@ -35,6 +37,7 @@ async function Admin() {
       <header className="flex items-center gap-4">
         <Image src="/logo.png" alt="Novelty Labels" width={136} height={34} className="h-8 w-auto" />
         <h1 className="h-display flex-1 text-[30px]">Admin</h1>
+        <Link href="/admin/audit" className="btn-sm border-[1.5px] border-line-input bg-surface">Audit log</Link>
         <Link href="/admin/poster" className="btn-sm border-[1.5px] border-line-input bg-surface">Entrance poster</Link>
         <Link href="/reception" className="btn-sm border-[1.5px] border-line-input bg-surface">Lobby</Link>
       </header>
@@ -100,6 +103,27 @@ async function Admin() {
         </ul>
         <h3 className="h-display border-t border-[#EEF2EF] px-4 pt-4 text-[15px]">Add a device</h3>
         <AddDeviceForm />
+      </section>
+      <section className="overflow-hidden rounded-2xl border border-[#E3EAE6] bg-surface">
+        <h2 className="h-display border-b border-[#EEF2EF] px-4 py-3.5 text-[17px]">Watchlist</h2>
+        <p className="border-b border-[#EEF2EF] px-4 py-3 text-[13.5px] text-ink-2">
+          Anyone matching a name or mobile here (including someone in their group) isn&apos;t checked straight in.
+          They wait as Arriving for reception, with the reason shown, and their host isn&apos;t told until reception confirms.
+        </p>
+        {(watch ?? []).length === 0 && <p className="px-4 py-6 text-center text-muted">No one on the watchlist.</p>}
+        <ul>
+          {(watch ?? []).map((w) => (
+            <li key={w.id} className="flex flex-wrap items-center gap-3 border-b border-[#F1F4F2] px-4 py-3">
+              <span className="min-w-0 flex-1">
+                <b className="block text-[15px]">{[w.full_name, w.mobile].filter(Boolean).join(" · ")}</b>
+                <span className="text-[13px] text-muted">{w.reason} · added {when(w.created_at)}</span>
+              </span>
+              <form action={removeWatch.bind(null, w.id)}><button className="btn-sm text-danger">Remove</button></form>
+            </li>
+          ))}
+        </ul>
+        <h3 className="h-display border-t border-[#EEF2EF] px-4 pt-4 text-[15px]">Add someone</h3>
+        <AddWatchForm />
       </section>
     </main>
   );

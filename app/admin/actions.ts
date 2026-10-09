@@ -35,7 +35,8 @@ export async function addStaff(_prev: string | null, form: FormData): Promise<st
   const admin = createAdminClient();
   const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
   if (error) return error.code === "email_exists" ? "Someone already has that email." : error.message;
-  const { error: e2 } = await supabase.from("staff").insert({ id: data.user.id, email, full_name: fullName, role, department });
+  // must_change_password: the admin chose this password, so they replace it at first sign-in.
+  const { error: e2 } = await supabase.from("staff").insert({ id: data.user.id, email, full_name: fullName, role, department, must_change_password: true });
   if (e2) {
     await admin.auth.admin.deleteUser(data.user.id);
     return "Could not save the staff record.";
@@ -67,11 +68,41 @@ export async function setStaffActive(id: string, active: boolean) {
 }
 
 export async function resetPassword(id: string, _prev: string | null, form: FormData): Promise<string | null> {
-  await requireAdmin();
+  const { supabase, myId } = await requireAdmin();
   const password = String(form.get("password") ?? "");
   if (password.length < MIN_PASSWORD) return `At least ${MIN_PASSWORD} characters.`;
-  const { error } = await createAdminClient().auth.admin.updateUserById(id, { password });
-  return error ? error.message : "saved";
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(id, { password });
+  if (error) return error.message;
+  // Someone else's password: they replace it at next sign-in. Passwords live in Supabase Auth, out of
+  // the audit trigger's reach, so the reset is logged here.
+  if (id !== myId) await supabase.from("staff").update({ must_change_password: true }).eq("id", id);
+  const { data: who } = await supabase.from("staff").select("full_name").eq("id", id).maybeSingle();
+  await admin.from("audit_log").insert({ actor: myId, entity: "staff", entity_id: id, action: "password_reset", changes: { _label: who?.full_name ?? null } });
+  return "saved";
+}
+
+// ---------------------------------------------------------------- watchlist
+
+// Anyone matching (name, mobile, or someone in their group) is held for reception at check-in.
+export async function addWatch(_prev: string | null, form: FormData): Promise<string | null> {
+  const { supabase, myId } = await requireAdmin();
+  const fullName = String(form.get("full_name") ?? "").trim().slice(0, 120) || null;
+  const mobile = String(form.get("mobile") ?? "").trim().slice(0, 30) || null;
+  const reason = String(form.get("reason") ?? "").trim().slice(0, 200);
+  if (!fullName && !mobile) return "Give a name, a mobile number, or both.";
+  if (mobile && mobile.replace(/\D/g, "").length < 8) return "That mobile number is too short to match safely.";
+  if (!reason) return "Add a reason. Reception sees it when the person is held.";
+  const { error } = await supabase.from("watchlist").insert({ full_name: fullName, mobile, reason, created_by: myId });
+  if (error) return "Could not save.";
+  refresh();
+  return null;
+}
+
+export async function removeWatch(id: string) {
+  const { supabase } = await requireAdmin();
+  await supabase.from("watchlist").delete().eq("id", id);
+  refresh();
 }
 
 // ---------------------------------------------------------------- desk devices

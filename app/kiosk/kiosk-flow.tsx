@@ -24,14 +24,15 @@ export type CheckInInput = {
   hostId: string | null; guests: string[]; photo: Blob; inviteId: string | null;
 };
 type OpenVisit = { visit_id: string; visitor: string; checked_in_at: string; host: string; guests: number };
-type Done = { first: string; host: string; at: string; guests: string[] };
+type Done = { first: string; host: string; at: string; guests: string[]; held?: boolean };
 
 // What the screens need. The desk device talks to Supabase as itself; a visitor's own phone goes
 // through server actions (see app/visit). Sign-out from the desk only: phones sign out on their status page.
 export type FlowApi = {
   searchHosts(q: string): Promise<Host[]>;
   redeemInvite(code: string): Promise<Invite | null>;
-  checkIn(input: CheckInInput): Promise<{ error: string } | { hostName: string | null; at: string }>;
+  // held: the watchlist matched, so the visit waits for reception instead of going straight in.
+  checkIn(input: CheckInInput): Promise<{ error: string } | { hostName: string | null; at: string; held?: boolean }>;
   findOpen?(q: string): Promise<OpenVisit[]>;
   signOut?(visitId: string): Promise<boolean>;
 };
@@ -60,10 +61,11 @@ const deskApi: FlowApi = {
         p_visitor_name: i.name, p_company: i.company, p_mobile: i.mobile, p_purpose: i.purpose,
         p_host_id: i.hostId, p_guests: i.guests, p_photo_path: path, p_invite_id: i.inviteId,
       })
-      .single<{ visit_id: string; checked_in_at: string; host_name: string | null }>();
+      .single<{ visit_id: string; checked_in_at: string; host_name: string | null; held: boolean }>();
     if (error || !data) {
       return { error: /invite/.test(error?.message ?? "") ? "That invite has already been used. Please ask at reception." : "Something went wrong checking you in. Please ask at reception." };
     }
+    if (data.held) return { hostName: data.host_name, at: data.checked_in_at, held: true }; // host is told once reception confirms
     notifyDeskCheckIn(data.visit_id).catch(() => {}); // a failed email shows in the lobby with Resend
     return { hostName: data.host_name, at: data.checked_in_at };
   },
@@ -145,7 +147,7 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
       return;
     }
     if (onCheckedIn) return onCheckedIn();
-    setDone({ first: name.trim().split(/\s+/)[0], host: r.hostName ?? "Reception", at: r.at, guests: named });
+    setDone({ first: name.trim().split(/\s+/)[0], host: r.hostName ?? "Reception", at: r.at, guests: named, held: r.held });
     setBusy(false);
     setStep("done");
   }
@@ -225,7 +227,13 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
         <PhotoStep photo={photo} setPhoto={setPhoto} busy={busy} error={error} onSubmit={checkIn} />
       )}
 
-      {step === "done" && done && (
+      {step === "done" && done?.held && (
+        // Deliberately neutral: the visitor isn't told why.
+        <Finished icon={<User className="size-10" />} title={`Thanks, ${done.first}.`}
+          lead="Please see reception before you go in. They'll be with you in a moment." onDone={reset} />
+      )}
+
+      {step === "done" && done && !done.held && (
         <Finished
           title={`You're checked in, ${done.first}.`}
           lead={done.host === "Reception"
@@ -495,11 +503,11 @@ function LeaveStep({ api, onLeft }: { api: FlowApi; onLeft: () => void }) {
   );
 }
 
-export function Finished({ title, lead, onDone, children }: { title: string; lead: string; onDone?: () => void; children?: ReactNode }) {
+export function Finished({ title, lead, onDone, icon, children }: { title: string; lead: string; onDone?: () => void; icon?: ReactNode; children?: ReactNode }) {
   return (
     <>
       <div className="flex flex-1 flex-col justify-center">
-        <span className="mb-5 grid size-[84px] place-items-center rounded-full bg-tint text-brand"><Check className="size-10" strokeWidth={2.5} /></span>
+        <span className="mb-5 grid size-[84px] place-items-center rounded-full bg-tint text-brand">{icon ?? <Check className="size-10" strokeWidth={2.5} />}</span>
         <h1 className="h-display mb-3 text-[38px] leading-[1.05]">{title}</h1>
         <p className="text-[15.5px] leading-relaxed text-ink-2">{lead}</p>
         {children}

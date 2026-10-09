@@ -166,6 +166,53 @@ assert.equal((await respond(device, fromInvite.visit_id, "unavailable"))[0].ok, 
 assert.equal((await respond(rahul, visit.visit_id, "coming"))[0].ok, false, "not after they've left");
 await rejects(respond(null, fromInvite.visit_id, "coming"), /permission denied/);
 
+// ---- watchlist: held as Arriving for reception, from the desk
+await db.query("insert into public.watchlist (full_name, reason) values ('Mallory  Bad', 'Banned after incident')");
+await db.query("insert into public.watchlist (mobile, reason) values ('+91 98765 43210', 'Unpaid contractor')");
+const [byName] = await checkIn(device, "  mallory BAD ", rahul);
+assert.equal(byName.held, true, "name match, any spacing or case");
+const [held] = (await db.query("select status, code, watchlist_id from public.visits where id = $1", [byName.visit_id])).rows;
+assert.equal(held.status, "arriving");
+assert.match(held.code, /^\d{3}$/);
+assert.ok(held.watchlist_id);
+const [byMobile] = await as(device, "select * from public.kiosk_check_in('Joe Bloggs', null, '098765 43210', null, $1, null, null)", [rahul]);
+assert.equal(byMobile.held, true, "mobile match on the last 10 digits");
+assert.equal((await checkIn(device, "Fine Person", rahul, ["Mallory Bad"]))[0].held, true, "someone in the group");
+assert.equal((await checkIn(device, "Normal Person", rahul))[0].held, false);
+assert.equal((await as(reception, "select * from public.watchlist")).length, 2, "reception sees reasons");
+assert.equal((await as(rahul, "select * from public.watchlist")).length, 0, "hosts don't");
+await rejects(as(reception, "insert into public.watchlist (full_name, reason) values ('x', 'y')"), /row-level security/, "admins manage it");
+
+// ---- emergency roll call
+assert.equal((await as(rahul, "select * from public.roll_call_people()")).length, 0, "nothing without an active roll call");
+const [{ id: rc }] = await as(rahul, "select public.start_roll_call() as id");
+assert.equal((await as(reception, "select public.start_roll_call() as id"))[0].id, rc, "one roll call at a time");
+const everyone = await as(rahul, "select * from public.roll_call_people()");
+assert.ok(everyone.some((p) => p.full_name === "Walk In"), "a host sees visitors who aren't theirs, during a roll call");
+assert.ok(everyone.some((p) => p.is_guest && p.full_name === "Gina Guest"), "guests are counted");
+assert.ok(everyone.some((p) => p.full_name === "mallory BAD"), "held arrivals too");
+const walkIn = everyone.find((p) => p.full_name === "Walk In");
+await as(neha, "select public.mark_safe($1, $2, true)", [rc, walkIn.person_id]);
+const marked = (await as(reception, "select * from public.roll_call_people()")).find((p) => p.person_id === walkIn.person_id);
+assert.equal(marked.marked_by, "Neha Kapoor");
+await rejects(as(device, "select public.mark_safe($1, $2, true)", [rc, walkIn.person_id]), /staff only/);
+await rejects(as(null, "select * from public.roll_call_people()"), /permission denied/);
+await as(reception, "select public.end_roll_call($1)", [rc]);
+assert.equal((await as(rahul, "select * from public.roll_call_people()")).length, 0, "closed again afterwards");
+await rejects(as(rahul, "select public.mark_safe($1, $2, false)", [rc, walkIn.person_id]), /ended/);
+
+// ---- audit log
+const audit = (await db.query("select * from public.audit_log order by id")).rows;
+assert.ok(audit.some((a) => a.entity === "visits" && a.action === "INSERT" && a.actor === device), "desk check-ins, by the device");
+assert.ok(audit.some((a) => a.entity === "visit_guests" && a.actor === reception && a.changes.checked_out_at), "reception signing a guest out");
+assert.ok(audit.some((a) => a.entity === "visits" && a.actor === device && a.changes.status?.[1] === "checked_out"), "a visitor signing out at the desk");
+assert.ok(audit.some((a) => a.entity === "roll_call_marks" && a.actor === neha), "who marked whom safe");
+assert.ok(!audit.some((a) => JSON.stringify(a.changes).includes("tokhash")), "never stores secrets");
+assert.ok(!audit.some((a) => a.entity === "kiosk_devices" && a.action === "UPDATE"), "desk heartbeat isn't logged");
+assert.equal((await as(reception, "select * from public.audit_log")).length, 0, "admins only");
+assert.ok((await as(admin, "select * from public.audit_log")).length > 0);
+await rejects(as(admin, "insert into public.audit_log (entity, action) values ('x', 'y')"), /row-level security/, "nobody writes it directly");
+
 // ---- helpers
 const short = async (n) => (await db.query("select public.short_name($1) as s", [n])).rows[0].s;
 assert.equal(await short("Priya"), "Priya");
