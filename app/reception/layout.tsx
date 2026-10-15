@@ -1,9 +1,10 @@
 import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { History, KeyRound, LayoutGrid, LogOut, Settings, Siren, Ticket } from "lucide-react";
+import { History, KeyRound, LayoutGrid, LogOut, Settings, Siren, Ticket, UserPlus } from "lucide-react";
 import { signOutStaff } from "./actions";
 import { getStaff, initials } from "./staff";
+import { CheckInFab, Tab } from "./tabs";
 
 export default function ReceptionLayout({ children }: LayoutProps<"/reception">) {
   return (
@@ -14,24 +15,25 @@ export default function ReceptionLayout({ children }: LayoutProps<"/reception">)
           <Nav />
         </Suspense>
       </aside>
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col pb-[calc(9rem+env(safe-area-inset-bottom))] lg:pb-0">{children}</div>
     </div>
   );
 }
-
-const item = "flex min-h-11 items-center gap-2.5 rounded-[10px] px-3 text-[14.5px] font-medium text-ink-2 hover:bg-tint";
 
 async function Nav() {
   const { me } = await getStaff();
   return (
     <>
-      <nav className="flex gap-1 lg:flex-col">
-        <Link href="/reception" className={item}><LayoutGrid className="size-5" /><span className="hidden sm:inline">{me.role === "host" ? "My visitors" : "Lobby"}</span></Link>
-        <Link href="/reception/invites" className={item}><Ticket className="size-5" /><span className="hidden sm:inline">Invites</span></Link>
-        <Link href="/reception/log" className={item}><History className="size-5" /><span className="hidden sm:inline">Visit log</span></Link>
-        <Link href="/reception/roll-call" className={item.replace("text-ink-2", "text-danger")}><Siren className="size-5" /><span className="hidden sm:inline">Roll call</span></Link>
-        {me.role === "admin" && <Link href="/admin" className={item}><Settings className="size-5" /><span className="hidden sm:inline">Admin</span></Link>}
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 flex gap-1 border-t border-line bg-surface px-2 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] lg:static lg:flex-col lg:border-0 lg:p-0">
+        <Tab href="/reception" label={me.role === "host" ? "My visitors" : "Lobby"}><LayoutGrid className="size-5" /></Tab>
+        {/* On phones the floating button below does this. */}
+        {me.role !== "host" && <div className="hidden lg:contents"><Tab href="/reception/check-in" label="Check in"><UserPlus className="size-5" /></Tab></div>}
+        <Tab href="/reception/invites" label="Invites"><Ticket className="size-5" /></Tab>
+        <Tab href="/reception/log" label="Visit log"><History className="size-5" /></Tab>
+        <Tab href="/reception/roll-call" label="Roll call" danger><Siren className="size-5" /></Tab>
+        {me.role === "admin" && <Tab href="/admin" label="Admin"><Settings className="size-5" /></Tab>}
       </nav>
+      {me.role !== "host" && <CheckInFab />}
       <div className="flex items-center gap-2.5 lg:mt-auto lg:border-t lg:border-[#EEF2EF] lg:p-3">
         <span className="av hidden size-[34px] text-[13px] lg:grid">{initials(me.full_name)}</span>
         <span className="hidden min-w-0 flex-1 lg:block">
