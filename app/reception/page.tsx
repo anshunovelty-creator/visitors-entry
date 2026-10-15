@@ -4,6 +4,7 @@ import { MailCheck, MailWarning, ShieldAlert, TriangleAlert, Users } from "lucid
 import { checkInExpected, confirmArrival, declineArrival, resendHostEmail, signOutVisit } from "./actions";
 import { HostReply } from "./host-reply";
 import { LiveRefresh } from "./live";
+import { LobbySearch } from "./search";
 import { arrivingCutoff, clock, day, getStaff, initials, SOURCE } from "./staff";
 
 type Visit = {
@@ -33,16 +34,20 @@ type Expected = {
 
 const VISIT_FIELDS = "id, visitor_name, company, photo_path, source, arrived_at, checked_in_at, code, host_email_sent_at, host_email_error, host_id, host_response, watchlist(reason), host:staff!visits_host_id_fkey(full_name), visit_guests(id, full_name, checked_out_at)";
 
-export default function ReceptionPage() {
+export default function ReceptionPage({ searchParams }: PageProps<"/reception">) {
   return (
     <Suspense fallback={<p className="p-8 text-muted">Loading the lobby…</p>}>
-      <Lobby />
+      <Lobby searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function Lobby() {
+async function Lobby({ searchParams }: Pick<PageProps<"/reception">, "searchParams">) {
   const { supabase, me, isReception } = await getStaff();
+  const rawQ = (await searchParams).q;
+  const q = (Array.isArray(rawQ) ? rawQ[0] : rawQ ?? "").trim().slice(0, 100);
+  // Visitor, company, host, anyone in the group, or the 3-digit code. Stat tiles stay unfiltered.
+  const hit = (...fields: (string | null | undefined)[]) => !q || fields.some((f) => f?.toLowerCase().includes(q.toLowerCase()));
   const cutoff = arrivingCutoff();
   // Own-phone arrivals nobody confirmed in time. Reception only; RLS makes it a no-op for hosts anyway.
   if (isReception) await supabase.from("visits").update({ status: "expired" }).eq("status", "arriving").lt("arrived_at", cutoff);
@@ -59,6 +64,10 @@ async function Lobby() {
   const arriving = (arrData ?? []) as unknown as Visit[];
   const expected = (expData ?? []) as unknown as Expected[];
   const inside = visits.reduce((n, v) => n + 1 + v.visit_guests.filter((g) => !g.checked_out_at).length, 0);
+  const visitHit = (v: Visit) => hit(v.visitor_name, v.company, v.host?.full_name ?? "Reception", v.code, ...v.visit_guests.map((g) => g.full_name));
+  const shownIn = visits.filter(visitHit);
+  const shownArriving = arriving.filter(visitHit);
+  const shownExpected = expected.filter((i) => hit(i.visitor_name, i.visitor_company, i.host?.full_name));
 
   const paths = [...visits, ...arriving].flatMap((v) => (v.photo_path ? [v.photo_path] : []));
   const { data: signed } = paths.length
@@ -91,11 +100,13 @@ async function Lobby() {
         <Stat label="Signed out today" value={outToday ?? 0} note="visits" />
       </section>
 
-      {arriving.length > 0 && (
+      <LobbySearch q={q} placeholder={isReception ? "Search visitor, company, host or code" : "Search your visitors"} />
+
+      {shownArriving.length > 0 && (
         <section className="overflow-hidden rounded-2xl border-[1.5px] border-warn bg-warn-bg/40">
           <h2 className="h-display border-b border-warn/30 px-4 py-3.5 text-[17px]">Arriving: check them, then confirm</h2>
           <ul>
-            {arriving.map((v) => (
+            {shownArriving.map((v) => (
               <li key={v.id} className="flex flex-wrap items-center gap-3 border-b border-warn/20 px-4 py-3 last:border-b-0">
                 {avatar(v)}
                 <span className="min-w-0 flex-1">
@@ -125,11 +136,11 @@ async function Lobby() {
 
       <section className="overflow-hidden rounded-2xl border border-[#E3EAE6] bg-surface">
         <h2 className="h-display border-b border-[#EEF2EF] px-4 py-3.5 text-[17px]">In the building</h2>
-        {visits.length === 0 && (
-          <p className="px-4 py-8 text-center text-muted">{isReception ? "No one is checked in right now." : "None of your visitors are here right now."}</p>
+        {shownIn.length === 0 && (
+          <p className="px-4 py-8 text-center text-muted">{q ? `No one here matches “${q}”.` : isReception ? "No one is checked in right now." : "None of your visitors are here right now."}</p>
         )}
         <ul>
-          {visits.map((v) => {
+          {shownIn.map((v) => {
             const stale = dayStart && new Date(v.checked_in_at) < new Date(dayStart);
             const open = v.visit_guests.filter((g) => !g.checked_out_at);
             return (
@@ -188,11 +199,11 @@ async function Lobby() {
         </ul>
       </section>
 
-      {expected.length > 0 && (
+      {shownExpected.length > 0 && (
         <section className="overflow-hidden rounded-2xl border border-[#E3EAE6] bg-surface">
           <h2 className="h-display border-b border-[#EEF2EF] px-4 py-3.5 text-[17px]">Expected today</h2>
           <ul>
-            {expected.map((i) => {
+            {shownExpected.map((i) => {
               const guests = i.invite_guests[0]?.count ?? 0;
               return (
                 <li key={i.id} className="flex flex-wrap items-center gap-3 border-b border-[#F1F4F2] px-4 py-3 last:border-b-0">
