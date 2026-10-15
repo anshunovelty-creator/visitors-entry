@@ -12,6 +12,7 @@ Next.js 16 + Supabase (Postgres, Auth, Storage, Realtime).
 - `/login`: staff sign-in by email and password (no public sign-up).
 - `/admin`: add staff with a starting password, change roles, reset passwords, deactivate; add desk devices, issue enrollment codes, revoke devices. `/admin/poster`: printable entrance QR poster.
 - `/reception`: live lobby: Arriving (confirm / not here), in the building, expected today (one-click check-in), host-email status with Resend, sign-out of groups or single guests. Hosts see only their own visitors and can't sign anyone out.
+- `/reception/check-in`: reception checks in a walk-in without an invite (host, people with them, optional photo); the host is emailed.
 - `/reception/invites`: hosts invite visitors for a date, with expected guests; the visitor is emailed a 6-character code, a QR for the desk tablet, and a check-in link.
 - Host approval: the host answers **I'm coming down** / **Not available** from the arrival email (signed `/respond/…` link, no sign-in) or in the app. Reception sees the answer live; a visitor checked in on their phone sees it too.
 - `/reception/visit/[id]`: full visit details (large photo, mobile, purpose, host, times, each guest).

@@ -44,6 +44,22 @@ export async function checkInExpected(inviteId: string) {
   refresh();
 }
 
+// Walk-in without an invite. The photo (optional) was already uploaded from the browser under staff/.
+export async function checkInWalkIn(form: FormData): Promise<string> {
+  const text = (k: string, max: number) => String(form.get(k) ?? "").trim().slice(0, max) || null;
+  const name = text("visitor_name", 120);
+  if (!name) return "Enter the visitor's name.";
+  const guests = String(form.get("guests") ?? "").split("\n").map((g) => g.trim().slice(0, 120)).filter(Boolean).slice(0, 20);
+  const supabase = await createClient();
+  const { data: visitId, error } = await supabase.rpc("staff_check_in", {
+    p_visitor_name: name, p_company: text("company", 120), p_mobile: text("mobile", 30), p_purpose: text("purpose", 60),
+    p_host_id: text("host_id", 36), p_guests: guests, p_photo_path: text("photo_path", 60),
+  });
+  if (error) return /reception only/.test(error.message) ? "Only reception can check visitors in." : "Could not check them in. Try again.";
+  await notifyHost(visitId as string);
+  redirect("/reception");
+}
+
 export async function resendHostEmail(visitId: string) {
   const supabase = await createClient();
   const { data: reception } = await supabase.rpc("is_reception");

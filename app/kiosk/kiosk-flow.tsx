@@ -545,7 +545,7 @@ export function Row({ k, v }: { k: string; v: string }) {
 }
 
 // Phone cameras give multi-MB photos (sometimes not JPEG); shrink to a 900px JPEG before upload.
-async function toJpeg(file: File): Promise<Blob> {
+export async function toJpeg(file: File): Promise<Blob> {
   const img = await createImageBitmap(file);
   const scale = Math.min(1, 900 / Math.max(img.width, img.height));
   const canvas = document.createElement("canvas");

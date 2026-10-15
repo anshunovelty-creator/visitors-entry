@@ -124,6 +124,18 @@ try {
   assert.ifError(ev2);
   created.visits.push(v2);
 
+  // ---- reception walk-in (as /reception/check-in does): optional photo under staff/
+  const staffPath = `staff/${randomUUID()}.jpg`;
+  assert.ok((await a.storage.from("visit-photos").upload(staffPath, jpeg, { contentType: "image/jpeg" })).error, "hosts can't upload staff photos");
+  assert.ifError((await r.storage.from("visit-photos").upload(staffPath, jpeg, { contentType: "image/jpeg" })).error);
+  created.photos.push(staffPath);
+  const walkIn = { p_visitor_name: `Walk ${tag}`, p_company: null, p_mobile: null, p_purpose: "Delivery", p_host_id: hostA.id, p_guests: ["Sam"], p_photo_path: staffPath };
+  assert.ok((await a.rpc("staff_check_in", walkIn)).error, "hosts can't check in walk-ins");
+  const { data: wv, error: ewv } = await r.rpc("staff_check_in", walkIn);
+  assert.ifError(ewv);
+  created.visits.push(wv);
+  assert.equal((await a.from("visits").select("source").eq("id", wv).single()).data?.source, "reception", "host sees their walk-in");
+
   // ---- own phone: signed upload, arriving, reception confirms (as app/visit + confirmArrival do)
   const phonePath = `phone/${randomUUID()}.jpg`;
   const { data: signedUp } = await admin.storage.from("visit-photos").createSignedUploadUrl(phonePath);

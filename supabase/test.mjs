@@ -213,6 +213,22 @@ assert.equal((await as(reception, "select * from public.audit_log")).length, 0, 
 assert.ok((await as(admin, "select * from public.audit_log")).length > 0);
 await rejects(as(admin, "insert into public.audit_log (entity, action) values ('x', 'y')"), /row-level security/, "nobody writes it directly");
 
+// ---- reception walk-in check-in
+const staffWalkIn = (uid, path = null) =>
+  as(uid, "select public.staff_check_in('Walker', 'Acme', '98765 43210', 'Delivery', $1, '{Sam}', $2) as v", [rahul, path]);
+await rejects(staffWalkIn(rahul), /reception only/);
+await rejects(staffWalkIn(device), /reception only/);
+const staffPhoto = "staff/1b6c1f3e-8a2b-4c3d-9e4f-5a6b7c8d9e0f.jpg";
+await rejects(staffWalkIn(reception, photo), /bad photo path/); // desk/ path isn't reception's
+await rejects(as(rahul, "insert into storage.objects (bucket_id, name) values ('visit-photos', $1)", [staffPhoto]), /row-level security/);
+await rejects(as(device, "insert into storage.objects (bucket_id, name) values ('visit-photos', $1)", [staffPhoto]), /row-level security/);
+await as(reception, "insert into storage.objects (bucket_id, name) values ('visit-photos', $1)", [staffPhoto]);
+const [{ v: walkVisit }] = await staffWalkIn(reception, staffPhoto);
+const [wv] = (await db.query("select source, status, host_id, checked_in_by, photo_path, (select count(*)::int from public.visit_guests where visit_id = $1) as guests from public.visits where id = $1", [walkVisit])).rows;
+assert.deepEqual([wv.source, wv.status, wv.host_id, wv.checked_in_by, wv.photo_path, wv.guests], ["reception", "checked_in", rahul, reception, staffPhoto, 1]);
+const [{ v: noPhoto }] = await staffWalkIn(reception);
+assert.ok(noPhoto, "photo is optional");
+
 // ---- helpers
 const short = async (n) => (await db.query("select public.short_name($1) as s", [n])).rows[0].s;
 assert.equal(await short("Priya"), "Priya");
