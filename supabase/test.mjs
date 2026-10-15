@@ -229,6 +229,14 @@ assert.deepEqual([wv.source, wv.status, wv.host_id, wv.checked_in_by, wv.photo_p
 const [{ v: noPhoto }] = await staffWalkIn(reception);
 assert.ok(noPhoto, "photo is optional");
 
+// ---- rate limits (server code only)
+const limit = async (key) => (await db.query("select public.rate_limit($1, 3, 600) as ok", [key])).rows[0].ok;
+assert.deepEqual([await limit("t:a"), await limit("t:a"), await limit("t:a"), await limit("t:a")], [true, true, true, false]);
+assert.equal(await limit("t:b"), true, "keys count separately");
+await rejects(as(null, "select public.rate_limit('t:x', 99, 600)"), /permission denied/);
+await rejects(as(rahul, "select public.rate_limit('t:x', 99, 600)"), /permission denied/);
+assert.equal((await as(rahul, "select * from public.rate_limits")).length, 0, "staff can't read counters");
+
 // ---- helpers
 const short = async (n) => (await db.query("select public.short_name($1) as s", [n])).rows[0].s;
 assert.equal(await short("Priya"), "Priya");

@@ -17,8 +17,22 @@ async function originHash() {
   return sha((h.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown");
 }
 
-// ponytail: counts on visits only; host search and invite lookups are capped but not rate limited.
-// Add Vercel KV / Upstash rate limiting if the poster URL ever gets abused.
+// Lookups that don't create a visit are counted in public.rate_limits (10-minute windows): per IP,
+// and for invite codes also across all IPs, so guessing codes from many addresses still stalls.
+const LOOKUPS = { hosts: { perIp: 60 }, invite: { perIp: 10, overall: 300 } } as const;
+
+async function withinLimit(name: keyof typeof LOOKUPS) {
+  const limit: { perIp: number; overall?: number } = LOOKUPS[name];
+  const admin = createAdminClient();
+  const hit = (key: string, max: number) => admin.rpc("rate_limit", { p_key: key, p_max: max, p_window_seconds: 600 });
+  const [mine, all] = await Promise.all([
+    hit(`${name}:${await originHash()}`, limit.perIp),
+    limit.overall ? hit(name, limit.overall) : { data: true },
+  ]);
+  return mine.data === true && all.data === true; // fails closed if the counter can't be reached
+}
+
+// Check-ins and photo uploads are counted on visits themselves.
 async function tooBusy(admin: ReturnType<typeof createAdminClient>, origin: string) {
   const since = new Date(Date.now() - 10 * 60_000).toISOString();
   const [{ count: mine }, { count: all }] = await Promise.all([
@@ -32,7 +46,7 @@ async function tooBusy(admin: ReturnType<typeof createAdminClient>, origin: stri
 export async function searchHosts(q: string) {
   // Letters, digits, spaces, . ' - only: PostgREST's or() treats , ( ) " * as syntax.
   const term = String(q ?? "").replace(/[^\p{L}\p{M}\p{N} .'-]/gu, "").trim().slice(0, 40);
-  if (term.length < 2) return [];
+  if (term.length < 2 || !(await withinLimit("hosts"))) return [];
   const { data } = await createAdminClient()
     .from("staff")
     .select("id, full_name, department")
@@ -44,6 +58,8 @@ export async function searchHosts(q: string) {
 }
 
 export async function redeemInvite(code: string) {
+  // Over the limit reads as "not valid today"; the visitor can still check in without the invite.
+  if (!(await withinLimit("invite"))) return null;
   const { data } = await createAdminClient().rpc("redeem_invite", { p_code: String(code ?? "").slice(0, 10) }).maybeSingle();
   return data ?? null;
 }
