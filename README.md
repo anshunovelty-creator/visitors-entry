@@ -18,7 +18,11 @@ Next.js 16 + Supabase (Postgres, Auth, Storage, Realtime).
 - `/reception/visit/[id]`: full visit details (large photo, mobile, purpose, host, times, each guest).
 - `/reception/log`: every past visit, searchable by visitor, company or host, filtered by date.
 
-Not yet: photo deletion after 90 days, self-service password change.
+- Lobby search (`/` to focus), and a bottom tab bar with a floating Check in button on phones.
+- Watchlist (admins): matching visitors are held as Arriving for reception. `/reception/roll-call`: emergency roll call. `/admin/audit`: who changed what.
+- `/account`: change your password; staff given a password by an admin must replace it on first sign-in.
+- Visit photos are deleted after 90 days by a daily Vercel Cron (`/api/cron/purge-photos`, needs `CRON_SECRET`).
+- The public `/visit` flow is rate limited per IP (and invite-code lookups overall) in Postgres.
 
 ## Setup
 
@@ -34,6 +38,7 @@ Not yet: photo deletion after 90 days, self-service password change.
 
 4. Email (optional locally, needed in production): create a [Resend](https://resend.com) API key and set `RESEND_API_KEY`, plus `EMAIL_FROM` once your domain is verified there. Without a key, emails print to the terminal in development and show as failed (with Resend) in production.
 5. `npm run dev`, sign in at `/login`, then add staff and desk devices at `/admin`. Open `/kiosk/enroll` on the desk device and enter its code.
+6. Deploying (Vercel): set the same Supabase keys, `RESEND_API_KEY` and `EMAIL_FROM`, and a random `CRON_SECRET` (`openssl rand -hex 32`) for the photo purge. Every new file in `supabase/migrations/` must also be run on the hosted project; the app sends staff back to `/login` if a column it expects is missing.
 
 ## Checks
 
