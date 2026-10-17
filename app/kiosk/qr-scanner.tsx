@@ -10,11 +10,23 @@ const MAX_SIDE = 640; // decode a scaled-down frame: plenty for a QR held up clo
 
 // The desk tablet's front camera, since the visitor holds their phone (or a printout) up to it.
 // jsQR rather than the browser's BarcodeDetector, which Safari doesn't have.
-export function QrScanner({ onCode, onClose }: { onCode: (code: string) => void; onClose: () => void }) {
+// Reads invite codes by default; the sign-out screen passes a badge parser and its own wording.
+type Copy = { title: string; lead: string; wrong: string; close: string };
+const INVITE: Copy = {
+  title: "Scan your invite",
+  lead: "Hold the QR code from your invitation email up to the camera.",
+  wrong: "That QR code isn't an invite. Try the one in your invitation email.",
+  close: "Type the code instead",
+};
+
+export function QrScanner({ onCode, onClose, parse = inviteCodeFromQr, copy = INVITE }: {
+  onCode: (code: string) => void; onClose: () => void; parse?: (text: string) => string | null; copy?: Copy;
+}) {
   const video = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState("");
   const [notInvite, setNotInvite] = useState(false);
   const found = useEffectEvent(onCode);
+  const read = useEffectEvent(parse);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -28,7 +40,7 @@ export function QrScanner({ onCode, onClose }: { onCode: (code: string) => void;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 } }, audio: false });
       } catch {
-        setError("The camera isn't available. Please type the code instead.");
+        setError("The camera isn't available. Use the button below instead.");
         return;
       }
       if (stopped) return stream.getTracks().forEach((t) => t.stop());
@@ -46,7 +58,7 @@ export function QrScanner({ onCode, onClose }: { onCode: (code: string) => void;
           const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const hit = jsQR(data, width, height, { inversionAttempts: "dontInvert" });
           if (hit) {
-            const code = inviteCodeFromQr(hit.data);
+            const code = read(hit.data);
             if (code) return found(code);
             setNotInvite(true);
           }
@@ -65,8 +77,8 @@ export function QrScanner({ onCode, onClose }: { onCode: (code: string) => void;
 
   return (
     <div className="flex flex-1 flex-col">
-      <h2 className="h-display mt-6 mb-2 text-[29px]">Scan your invite</h2>
-      <p className="mb-4 text-[15.5px] text-ink-2">Hold the QR code from your invitation email up to the camera.</p>
+      <h2 className="h-display mt-6 mb-2 text-[29px]">{copy.title}</h2>
+      <p className="mb-4 text-[15.5px] text-ink-2">{copy.lead}</p>
       {error ? (
         <p role="alert" className="rounded-xl bg-[#FEE4E2] px-3.5 py-2.5 text-sm font-medium text-danger">{error}</p>
       ) : (
@@ -77,10 +89,10 @@ export function QrScanner({ onCode, onClose }: { onCode: (code: string) => void;
         </div>
       )}
       <p role="status" className="mt-3 min-h-5 text-center text-[14px] font-medium text-warn-ink">
-        {notInvite && !error && "That QR code isn't an invite. Try the one in your invitation email."}
+        {notInvite && !error && copy.wrong}
       </p>
       <div className="flex-1" />
-      <button className="btn-ghost mt-4 w-full" onClick={onClose}><Keyboard className="size-5" /> Type the code instead</button>
+      <button className="btn-ghost mt-4 w-full" onClick={onClose}><Keyboard className="size-5" /> {copy.close}</button>
     </div>
   );
 }

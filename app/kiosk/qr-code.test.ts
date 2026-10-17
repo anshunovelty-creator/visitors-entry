@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import jsQR from "jsqr";
 import QRCode from "qrcode";
-import { inviteCodeFromQr } from "./qr-code.ts";
+import { badgeVisitFromQr, inviteCodeFromQr } from "./qr-code.ts";
 
 test("reads the code out of an invite QR", () => {
   assert.equal(inviteCodeFromQr("https://visitors-entry.vercel.app/visit?code=K7M2QX"), "K7M2QX");
@@ -31,4 +31,10 @@ test("ignores QRs that aren't invites", () => {
   assert.equal(inviteCodeFromQr("https://example.com/?code=hello!"), null);
   assert.equal(inviteCodeFromQr("K7M2Q0"), null, "0 isn't in the code alphabet");
   assert.equal(inviteCodeFromQr("WIFI:S:office;T:WPA;P:secret;;"), null);
+});
+
+test("badge QR", () => {
+  assert.equal(badgeVisitFromQr("VB:0B6C1F3E-8A2B-4C3D-9E4F-5A6B7C8D9E0F"), "0b6c1f3e-8a2b-4c3d-9e4f-5a6b7c8d9e0f");
+  assert.equal(badgeVisitFromQr("https://x.test/visit?code=K7M2QX"), null);
+  assert.equal(badgeVisitFromQr("VB:not-a-uuid"), null);
 });

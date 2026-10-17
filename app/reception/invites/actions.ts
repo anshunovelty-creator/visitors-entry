@@ -3,8 +3,10 @@
 import { randomInt } from "node:crypto";
 import QRCode from "qrcode";
 import { refresh } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, signedInUser } from "@/lib/supabase/server";
 import { sendEmail, siteOrigin } from "@/lib/email";
+import { inviteIcs } from "@/lib/ics";
+import { officeToday } from "../staff";
 
 // No 0/O/1/I/L, so the code reads cleanly off an email and types easily at the desk.
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -14,9 +16,9 @@ export type InviteResult = { code?: string; qrSvg?: string; emailed?: boolean; e
 // Hosts invite their own visitors (RLS: host_id must be the caller). Reception can too, as host.
 export async function createInvite(_prev: InviteResult, form: FormData): Promise<InviteResult> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await signedInUser(supabase);
   if (!user) return { error: "Signed out. Sign in again." };
-  const { data: today } = await supabase.rpc("office_today");
+  const today = officeToday();
 
   const name = String(form.get("visitor_name") ?? "").trim().slice(0, 120);
   const email = String(form.get("visitor_email") ?? "").trim().toLowerCase().slice(0, 200);
@@ -47,7 +49,11 @@ export async function createInvite(_prev: InviteResult, form: FormData): Promise
   const qrSvg = await QRCode.toString(link, { ...qr, type: "svg" });
   let emailError: string | undefined;
   if (email) {
-    const { data: me } = await supabase.from("staff").select("full_name").eq("id", user.id).single();
+    const [{ data: me }, { data: settings }] = await Promise.all([
+      supabase.from("staff").select("full_name").eq("id", user.id).single(),
+      supabase.from("settings").select("visitor_info").maybeSingle(),
+    ]);
+    const info = settings?.visitor_info.trim() ?? "";
     const when = new Date(`${date}T12:00:00+05:30`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" });
     const host = me?.full_name ?? "Your host";
     const png = (await QRCode.toBuffer(link, { ...qr, type: "png", width: 360 })).toString("base64");
@@ -62,9 +68,18 @@ export async function createInvite(_prev: InviteResult, form: FormData): Promise
       link,
       "",
       "The code works once, on the day of your visit.",
+      ...(info ? ["", info] : []),
     ].join("\n"), {
-      html: inviteHtml({ first: escapeHtml(name.split(" ")[0]), host: escapeHtml(host), when, code: pretty, link }),
-      attachments: [{ filename: "check-in-qr.png", content: png, content_id: "checkin-qr" }],
+      html: inviteHtml({ first: escapeHtml(name.split(" ")[0]), host: escapeHtml(host), when, code: pretty, link, info: escapeHtml(info) }),
+      attachments: [
+        { filename: "check-in-qr.png", content: png, content_id: "checkin-qr" },
+        // Add-to-calendar: the visitor's calendar app opens it.
+        { filename: "visit.ics", contentType: "text/calendar; charset=utf-8; method=PUBLISH", content: Buffer.from(inviteIcs({
+          uid: `${invite.id}@visitors.noveltylabels`, date,
+          summary: `Visit to Novelty Labels (${host})`,
+          description: [`Check-in code: ${pretty}`, `Check in: ${link}`, ...(info ? ["", info] : [])].join("\n"),
+        })).toString("base64") },
+      ],
     })) ?? undefined;
   }
   refresh();
@@ -73,7 +88,7 @@ export async function createInvite(_prev: InviteResult, form: FormData): Promise
 
 const escapeHtml = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-function inviteHtml({ first, host, when, code, link }: { first: string; host: string; when: string; code: string; link: string }) {
+function inviteHtml({ first, host, when, code, link, info }: { first: string; host: string; when: string; code: string; link: string; info: string }) {
   return `<div style="font-family:system-ui,sans-serif;color:#0e1f18;max-width:480px">
 <p>Hi ${first},</p>
 <p>${host} has invited you to <b>Novelty Labels</b> on <b>${when}</b>.</p>
@@ -83,6 +98,7 @@ function inviteHtml({ first, host, when, code, link }: { first: string; host: st
 <img src="cid:checkin-qr" width="180" height="180" alt="Check-in QR code ${code}" />
 <p style="margin-top:20px"><a href="${link}" style="color:#10553f;font-weight:600">Or check in on your phone</a></p>
 <p style="color:#6b7a72;font-size:13px">The code works once, on the day of your visit.</p>
+${info ? `<p style="margin-top:20px;padding:12px 14px;background:#eaf3ee;border-radius:10px;white-space:pre-line;font-size:14px">${info}</p>` : ""}
 </div>`;
 }
 

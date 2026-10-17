@@ -1,6 +1,6 @@
 import "server-only";
 import { createServerClient } from "@supabase/ssr";
-import { createClient as createPlainClient } from "@supabase/supabase-js";
+import { createClient as createPlainClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { connection } from "next/server";
 
@@ -33,4 +33,12 @@ export function createAdminClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
+}
+
+// The signed-in user, verified locally against the project's JWT signing keys: no round trip to
+// Supabase Auth, which getUser() makes on every call. Deactivated staff are still caught by the
+// staff lookups that follow (active = true).
+export async function signedInUser(supabase: Pick<SupabaseClient, "auth">) {
+  const { data } = await supabase.auth.getClaims();
+  return data ? { id: data.claims.sub } : null;
 }

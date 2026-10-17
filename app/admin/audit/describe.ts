@@ -21,9 +21,18 @@ export function describe({ entity, action, changes }: AuditRow): string {
       return c.status === "arriving" && c.source !== "own_phone"
         ? `${label} held for reception (watchlist) ${SOURCE[c.source as string] ?? ""}`.trim()
         : `${label} checked in ${SOURCE[c.source as string] ?? ""}`.trim();
+    case "deliveries:INSERT":
+      return `Parcel logged${c.carrier ? ` (${c.carrier})` : ""}`;
+    case "deliveries:UPDATE":
+      if (diff("collected_at")) return "Parcel collected";
+      break;
+    case "settings:UPDATE":
+      if (diff("agreement")) return "Visitor agreement changed";
+      if (diff("visitor_info")) return "Visitor info for invites changed";
+      break;
     case "visits:UPDATE":
       if (diff("status")) return `${label}: ${status(from("status"))} → ${status(to("status"))}`;
-      if (diff("host_response")) return `Host answered for ${label}: ${to("host_response") === "coming" ? "coming down" : "not available"}`;
+      if (diff("host_response")) return `${label}: visit ${to("host_response") === "coming" ? "approved" : "declined"}`;
       if (diff("photo_path") && to("photo_path") === null) return `Photo of ${label} deleted (90-day rule)`;
       if (diff("host_email_error") && to("host_email_error")) return `Host email about ${label} failed`;
       if (diff("host_email_sent_at")) return `Host emailed about ${label}`;

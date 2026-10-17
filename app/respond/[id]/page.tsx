@@ -10,7 +10,7 @@ import { respondFromEmail } from "./actions";
 
 export const metadata: Metadata = { title: "Your visitor · Novelty Labels" };
 
-// Opened from the "your visitor is here" email. Nothing happens until the host taps the button:
+// Opened from the "your visitor is waiting for your approval" email. Nothing happens until the host taps the button:
 // mail scanners open links on their own, and that mustn't count as an answer.
 export default function RespondPage({ params, searchParams }: PageProps<"/respond/[id]">) {
   return (
@@ -23,7 +23,7 @@ export default function RespondPage({ params, searchParams }: PageProps<"/respon
   );
 }
 
-const LABEL = { coming: "I'm coming down", unavailable: "I'm not available" } as const;
+const LABEL = { coming: "Approve: let them in", unavailable: "Decline" } as const;
 
 async function Respond({ params, searchParams }: Pick<PageProps<"/respond/[id]">, "params" | "searchParams">) {
   await connection();
@@ -51,7 +51,7 @@ async function Respond({ params, searchParams }: Pick<PageProps<"/respond/[id]">
         <span className="grid size-16 place-items-center rounded-full bg-tint text-brand"><Check className="size-8" strokeWidth={2.5} /></span>
         <h1 className="h-display text-[30px] leading-tight">Thanks. Reception knows.</h1>
         <p className="text-[15.5px] text-ink-2">
-          {r === "coming" ? `${who} will be told you're on your way.` : `Reception will look after ${who}.`}
+          {r === "coming" ? `Reception will let ${who} in.` : `Reception will tell ${who} you can't see them.`}
         </p>
         <a href={otherLink} className="text-[14px] font-semibold text-brand">Change to “{LABEL[other]}”</a>
       </>
@@ -60,7 +60,7 @@ async function Respond({ params, searchParams }: Pick<PageProps<"/respond/[id]">
 
   return (
     <>
-      <h1 className="h-display text-[30px] leading-tight">{who} is here to see you.</h1>
+      <h1 className="h-display text-[30px] leading-tight">{who} is here and waiting for your approval.</h1>
       <form action={respondFromEmail.bind(null, id, r, s)}>
         <button className={`btn w-full ${r === "unavailable" ? "bg-danger hover:bg-danger" : ""}`}>{LABEL[r]}</button>
       </form>

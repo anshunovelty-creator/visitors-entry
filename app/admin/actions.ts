@@ -2,7 +2,7 @@
 
 import { createHash, randomInt, randomUUID } from "node:crypto";
 import { refresh } from "next/cache";
-import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient, signedInUser } from "@/lib/supabase/server";
 
 const ROLES = ["host", "reception", "admin"] as const;
 type Role = (typeof ROLES)[number];
@@ -12,7 +12,7 @@ const MIN_PASSWORD = 8;
 // (admins only) applies too; the service-role client is only for auth.users.
 async function requireAdmin() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await signedInUser(supabase);
   if (!user) throw new Error("Signed out.");
   const { data: me } = await supabase.from("staff").select("role, active").eq("id", user.id).maybeSingle();
   if (me?.role !== "admin" || !me.active) throw new Error("Admins only.");
@@ -153,5 +153,18 @@ export async function revokeDevice(id: string) {
     .update({ revoked_at: new Date().toISOString(), enrollment_code_hash: null, enrollment_expires_at: null })
     .eq("id", id);
   if (error) throw new Error("Could not revoke.");
+  refresh();
+}
+
+// ---------------------------------------------------------------- settings
+
+// The visitor agreement shown at check-in (empty = none) and the directions/parking/Wi-Fi note added
+// to invite emails. Editing the agreement gives it a new version; visits record the one accepted.
+export async function saveSettings(form: FormData) {
+  const { supabase } = await requireAdmin();
+  const agreement = String(form.get("agreement") ?? "").replace(/\r\n/g, "\n").trim().slice(0, 5000);
+  const visitorInfo = String(form.get("visitor_info") ?? "").replace(/\r\n/g, "\n").trim().slice(0, 2000);
+  const { error } = await supabase.from("settings").update({ agreement, visitor_info: visitorInfo }).not("id", "is", null);
+  if (error) throw new Error("Could not save the settings.");
   refresh();
 }

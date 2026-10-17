@@ -12,3 +12,9 @@ export function inviteCodeFromQr(text: string): string | null {
   const code = raw.replace(/[\s-]/g, "").toUpperCase();
   return /^[A-HJ-KM-NP-Z2-9]{6}$/.test(code) ? code : null;
 }
+
+// A printed visitor badge's QR: "VB:" and the visit id. The desk signs that visit out.
+export function badgeVisitFromQr(text: string): string | null {
+  const m = /^VB:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(String(text ?? "").trim());
+  return m ? m[1].toLowerCase() : null;
+}

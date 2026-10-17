@@ -1,9 +1,9 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, Phone } from "lucide-react";
+import { ChevronLeft, Phone, Printer } from "lucide-react";
 import { signOutVisit } from "../../actions";
-import { clock, day, getStaff, initials, SOURCE } from "../../staff";
+import { clock, day, getStaff, initials, photoSrc, SOURCE } from "../../staff";
 import { HostReply } from "../../host-reply";
 
 type Visit = {
@@ -18,6 +18,10 @@ type Visit = {
   arrived_at: string;
   checked_in_at: string | null;
   checked_out_at: string | null;
+  auto_signed_out: boolean;
+  vehicle_no: string | null;
+  carrying: string | null;
+  agreed_at: string | null;
   host_id: string | null;
   host_response: "coming" | "unavailable" | null;
   host: { full_name: string; department: string | null } | null;
@@ -41,14 +45,11 @@ async function Detail({ params }: { params: Promise<{ id: string }> }) {
   // RLS hides other hosts' visitors, so a host opening someone else's link gets a 404.
   const { data } = await supabase
     .from("visits")
-    .select("id, visitor_name, company, mobile, purpose, photo_path, source, status, arrived_at, checked_in_at, checked_out_at, host_id, host_response, host:staff!visits_host_id_fkey(full_name, department), visit_guests(id, full_name, checked_out_at)")
+    .select("id, visitor_name, company, mobile, purpose, photo_path, source, status, arrived_at, checked_in_at, checked_out_at, auto_signed_out, vehicle_no, carrying, agreed_at, host_id, host_response, host:staff!visits_host_id_fkey(full_name, department), visit_guests(id, full_name, checked_out_at)")
     .eq("id", id)
     .maybeSingle();
   if (!data) notFound();
   const v = data as unknown as Visit;
-  const { data: signed } = v.photo_path
-    ? await supabase.storage.from("visit-photos").createSignedUrl(v.photo_path, 300)
-    : { data: null };
   const inside = v.status === "checked_in";
   const at = (iso: string | null) => (iso ? `${day(iso)}, ${clock(iso)}` : "—");
 
@@ -60,9 +61,9 @@ async function Detail({ params }: { params: Promise<{ id: string }> }) {
 
       <section className="flex flex-col gap-5 rounded-2xl border border-[#E3EAE6] bg-surface p-5 sm:flex-row">
         <span className="grid aspect-square w-full max-w-[220px] shrink-0 place-items-center overflow-hidden rounded-2xl bg-[#D9E4DE] font-display text-5xl text-ink-2">
-          {signed?.signedUrl
-            // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL; must not be cached by the image optimiser
-            ? <img src={signed.signedUrl} alt={`Photo of ${v.visitor_name}`} className="size-full object-cover" />
+          {v.photo_path
+            // eslint-disable-next-line @next/next/no-img-element -- private photo; the image optimiser must not cache it
+            ? <img src={photoSrc(v.photo_path)} alt={`Photo of ${v.visitor_name}`} className="size-full object-cover" />
             : initials(v.visitor_name)}
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -81,15 +82,23 @@ async function Detail({ params }: { params: Promise<{ id: string }> }) {
             <dt className="text-muted">Visiting</dt>
             <dd className="flex flex-wrap items-center gap-2">
               {v.host ? [v.host.full_name, v.host.department].filter(Boolean).join(" · ") : "Reception"}
-              {v.host && ["arriving", "checked_in"].includes(v.status) && <HostReply visitId={v.id} response={v.host_response} mine={v.host_id === me.id} />}
+              {v.host && ["arriving", "checked_in"].includes(v.status) && <HostReply visitId={v.id} response={v.host_response} mine={v.host_id === me.id} reception={isReception && inside} />}
             </dd>
             <dt className="text-muted">Purpose</dt>
             <dd className="break-words">{v.purpose ?? "—"}</dd>
+            {v.vehicle_no && <><dt className="text-muted">Vehicle</dt><dd className="font-medium tracking-wide">{v.vehicle_no}</dd></>}
+            {v.carrying && <><dt className="text-muted">Carrying</dt><dd className="break-words">{v.carrying}</dd></>}
+            {v.agreed_at && <><dt className="text-muted">Agreement</dt><dd>Accepted {at(v.agreed_at)}</dd></>}
             <dt className="text-muted">Checked in</dt>
             <dd className="tabular-nums">{at(v.checked_in_at ?? v.arrived_at)} <span className="text-muted">· {SOURCE[v.source]}</span></dd>
             <dt className="text-muted">Checked out</dt>
-            <dd className="tabular-nums">{at(v.checked_out_at)}</dd>
+            <dd className="tabular-nums">{v.auto_signed_out ? "Didn't sign out (closed overnight)" : at(v.checked_out_at)}</dd>
           </dl>
+          {inside && (
+            <Link href={`/reception/visit/${v.id}/badge`} className="btn-sm border-[1.5px] border-line-input bg-surface">
+              <Printer className="size-4" /> Print badge
+            </Link>
+          )}
           {isReception && inside && (
             <form action={signOutVisit.bind(null, v.id, undefined)}>
               <button className="btn-sm border-[1.5px] border-line-input bg-surface">

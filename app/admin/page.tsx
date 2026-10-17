@@ -2,8 +2,8 @@ import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { removeWatch, revokeDevice, setStaffActive, updateStaff } from "./actions";
+import { createClient, signedInUser } from "@/lib/supabase/server";
+import { removeWatch, revokeDevice, saveSettings, setStaffActive, updateStaff } from "./actions";
 import { AddDeviceForm, AddStaffForm, AddWatchForm, DeviceCodeButton, ResetPasswordForm } from "./forms";
 
 const TZ = "Asia/Kolkata";
@@ -20,16 +20,17 @@ export default function AdminPage() {
 
 async function Admin() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await signedInUser(supabase);
   if (!user) redirect("/login");
   const { data: me } = await supabase.from("staff").select("role, active, must_change_password").eq("id", user.id).maybeSingle();
   if (me?.must_change_password) redirect("/account");
   if (me?.role !== "admin" || !me.active) return <p className="p-8 text-ink-2">This page is for admins.</p>;
 
-  const [{ data: staff }, { data: devices }, { data: watch }] = await Promise.all([
+  const [{ data: staff }, { data: devices }, { data: watch }, { data: settings }] = await Promise.all([
     supabase.from("staff").select("id, full_name, email, department, role, active").order("active", { ascending: false }).order("full_name"),
     supabase.from("kiosk_devices").select("id, name, enrollment_code_hash, last_seen_at, revoked_at").order("created_at"),
     supabase.from("watchlist").select("id, full_name, mobile, reason, created_at").order("created_at", { ascending: false }),
+    supabase.from("settings").select("agreement, agreement_updated_at, visitor_info").maybeSingle(),
   ]);
 
   return (
@@ -124,6 +125,21 @@ async function Admin() {
         </ul>
         <h3 className="h-display border-t border-[#EEF2EF] px-4 pt-4 text-[15px]">Add someone</h3>
         <AddWatchForm />
+      </section>
+      <section className="overflow-hidden rounded-2xl border border-[#E3EAE6] bg-surface">
+        <h2 className="h-display border-b border-[#EEF2EF] px-4 py-3.5 text-[17px]">Visitor agreement and info</h2>
+        <form action={saveSettings} className="grid gap-4 p-4">
+          <label>
+            <span className="label">Agreement visitors accept at check-in <span className="font-normal text-muted">NDA, safety rules, photo consent. Leave empty for none.</span></span>
+            <textarea name="agreement" rows={7} maxLength={5000} defaultValue={settings?.agreement ?? ""} className="input h-auto py-3" />
+            {settings?.agreement_updated_at && <span className="mt-1 block text-[12.5px] text-muted">Last changed {when(settings.agreement_updated_at)}. Each visit records the version it accepted.</span>}
+          </label>
+          <label>
+            <span className="label">Visitor info for invite emails <span className="font-normal text-muted">Address, directions, parking, Wi-Fi.</span></span>
+            <textarea name="visitor_info" rows={4} maxLength={2000} defaultValue={settings?.visitor_info ?? ""} className="input h-auto py-3" />
+          </label>
+          <button className="btn justify-self-start">Save</button>
+        </form>
       </section>
     </main>
   );

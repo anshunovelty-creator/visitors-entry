@@ -1,8 +1,9 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { Search, Users } from "lucide-react";
+import { Download, Search, Users } from "lucide-react";
 import { clock, day, getStaff, SOURCE } from "../staff";
 import { parseLogFilters } from "./filters";
+import { logQuery } from "./query";
 
 type Row = {
   id: string;
@@ -12,6 +13,7 @@ type Row = {
   status: string;
   arrived_at: string;
   checked_out_at: string | null;
+  auto_signed_out: boolean;
   host: { full_name: string } | null;
   visit_guests: { count: number }[];
 };
@@ -34,24 +36,8 @@ async function Log({ searchParams }: { searchParams: PageProps<"/reception/log">
   const { supabase, isReception } = await getStaff();
   const f = parseLogFilters(await searchParams);
 
-  let query = supabase
-    .from("visits")
-    .select("id, visitor_name, company, source, status, arrived_at, checked_out_at, host:staff!visits_host_id_fkey(full_name), visit_guests(count)")
-    .order("arrived_at", { ascending: false })
-    .limit(LIMIT);
-  if (f.fromIso) query = query.gte("arrived_at", f.fromIso);
-  if (f.toIso) query = query.lt("arrived_at", f.toIso);
-  if (f.q) {
-    // Host names live on staff, so look up matching hosts first and fold their ids into the or().
-    const { data: hosts } = await supabase.from("staff").select("id").ilike("full_name", `%${f.q}%`).limit(50);
-    const like = `*${f.q}*`;
-    query = query.or([
-      `visitor_name.ilike.${like}`,
-      `company.ilike.${like}`,
-      ...(hosts?.length ? [`host_id.in.(${hosts.map((h) => h.id).join(",")})`] : []),
-    ].join(","));
-  }
-  const { data, error } = await query;
+  const { data, error } = await logQuery(supabase, f,
+    "id, visitor_name, company, source, status, arrived_at, checked_out_at, auto_signed_out, host:staff!visits_host_id_fkey(full_name), visit_guests(count)", LIMIT);
   const rows = (data ?? []) as unknown as Row[];
 
   return (
@@ -68,6 +54,11 @@ async function Log({ searchParams }: { searchParams: PageProps<"/reception/log">
         <label className="min-w-36 flex-1"><span className="label">To</span><input name="to" type="date" defaultValue={f.to} className="input" /></label>
         <button className="btn h-[52px]">Search</button>
         {(f.q || f.from || f.to) && <Link href="/reception/log" className="flex h-[52px] items-center px-2 text-[14px] font-semibold text-brand">Clear</Link>}
+        {/* A plain link: the browser downloads the file. Same filters as the list. */}
+        <a href={`/reception/log/export?${new URLSearchParams({ q: f.q, from: f.from, to: f.to })}`}
+          className="ml-auto flex h-[52px] items-center gap-1.5 px-2 text-[14px] font-semibold text-brand">
+          <Download className="size-4" />Export CSV
+        </a>
       </form>
 
       <section className="overflow-hidden rounded-2xl border border-[#E3EAE6] bg-surface">
@@ -98,7 +89,7 @@ async function Log({ searchParams }: { searchParams: PageProps<"/reception/log">
                   </span>
                   <span className="text-[12.5px] text-muted">{SOURCE[v.source]}</span>
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${v.status === "checked_in" ? "bg-tint text-brand" : "bg-[#EEF2EF] text-ink-2"}`}>
-                    {v.status === "checked_in" ? "Inside" : v.status === "checked_out" ? "Left" : v.status}
+                    {v.status === "checked_in" ? "Inside" : v.auto_signed_out ? "Not signed out" : v.status === "checked_out" ? "Left" : v.status}
                   </span>
                 </Link>
               </li>

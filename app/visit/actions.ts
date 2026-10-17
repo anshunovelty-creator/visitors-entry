@@ -76,7 +76,14 @@ export async function startPhotoUpload(): Promise<{ path: string; token: string 
 type PhoneCheckIn = {
   name: string; company: string; mobile: string; purpose: string;
   hostId: string | null; guests: string[]; photoPath: string; inviteId: string | null;
+  vehicle: string; carrying: string; agreed: boolean;
 };
+
+// The visitor agreement (NDA / safety rules) shown before the photo; "" when admins haven't set one.
+export async function visitorAgreement() {
+  const { data } = await createAdminClient().from("settings").select("agreement").maybeSingle();
+  return data?.agreement.trim() ?? "";
+}
 
 // Returns the secret the phone keeps to follow (and later sign out of) its own visit.
 export async function phoneCheckIn(i: PhoneCheckIn): Promise<{ token: string } | { error: string }> {
@@ -91,9 +98,12 @@ export async function phoneCheckIn(i: PhoneCheckIn): Promise<{ token: string } |
     p_guests: Array.isArray(i.guests) ? i.guests.map(String) : [],
     p_photo_path: String(i.photoPath ?? ""), p_invite_id: i.inviteId,
     p_phone_token_hash: sha(token), p_origin_hash: origin,
+    p_vehicle: String(i.vehicle ?? ""), p_carrying: String(i.carrying ?? ""), p_agreed: i.agreed === true,
   });
   if (error) {
-    return { error: /invite/.test(error.message) ? "That invite has already been used. Please ask at reception." : "Something went wrong checking you in. Please ask at reception." };
+    return { error: /invite/.test(error.message) ? "That invite has already been used. Please ask at reception."
+      : /agreement/.test(error.message) ? "The visitor agreement has changed. Please go back and accept it again."
+      : "Something went wrong checking you in. Please ask at reception." };
   }
   return { token };
 }

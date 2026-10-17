@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "admin": "node --env-file=.env.local scripts/admin.mjs",
-    "test": "node --test app/reception/log/filters.test.ts app/kiosk/qr-code.test.ts lib/sign.test.ts app/admin/audit/describe.test.ts",
+    "test": "node --test app/reception/log/filters.test.ts app/kiosk/qr-code.test.ts lib/sign.test.ts app/admin/audit/describe.test.ts app/reception/reports/stats.test.ts lib/ics.test.ts",
     "test:db": "node supabase/test.mjs",
     "test:live": "node --env-file=.env.local scripts/smoke.mjs"
   },
@@ -18,18 +18,22 @@
     "jsqr": "^1.4.0",
     "lucide-react": "^1.52.0",
     "next": "16.4.0",
+    "nodemailer": "^10.1.1",
     "qrcode": "^1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.2",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",

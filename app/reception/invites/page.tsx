@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { getStaff } from "../staff";
+import { getStaff, officeToday } from "../staff";
 import { cancelInvite } from "./actions";
 import { InviteForm } from "./form";
 
@@ -29,7 +29,7 @@ export default function InvitesPage() {
 
 async function Invites() {
   const { supabase, isReception } = await getStaff();
-  const { data: today } = await supabase.rpc("office_today");
+  const today = officeToday();
   const weekAgo = new Date(Date.parse(`${today}T00:00:00+05:30`) - 7 * 86_400_000).toISOString().slice(0, 10);
   // RLS: hosts see their own invites, reception sees everyone's.
   const { data } = await supabase.from("invites")

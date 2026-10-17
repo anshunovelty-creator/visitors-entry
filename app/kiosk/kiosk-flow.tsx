@@ -7,13 +7,14 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { notifyDeskCheckIn } from "./actions";
+import { badgeVisitFromQr } from "./qr-code";
 import { QrScanner } from "./qr-scanner";
 
 const PURPOSES = ["Meeting", "Interview", "Delivery", "Contractor", "Other"];
 const IDLE_MS = 60_000;
 const DONE_MS = 8_000;
 
-type Step = "welcome" | "invite" | "guests" | "details" | "host" | "photo" | "done" | "leave" | "left";
+type Step = "welcome" | "invite" | "guests" | "details" | "host" | "agree" | "photo" | "done" | "leave" | "left";
 export type Host = { id: string | null; full_name: string; department: string | null };
 export type Invite = {
   invite_id: string; visitor_name: string; visitor_company: string | null; purpose: string | null;
@@ -22,6 +23,10 @@ export type Invite = {
 export type CheckInInput = {
   name: string; company: string; mobile: string; purpose: string;
   hostId: string | null; guests: string[]; photo: Blob; inviteId: string | null;
+  vehicle: string; carrying: string; agreed: boolean;
+};
+export type Returning = {
+  visitor_name: string; company: string | null; host_id: string | null; host_name: string | null; host_department: string | null; visits: number;
 };
 type OpenVisit = { visit_id: string; visitor: string; checked_in_at: string; host: string; guests: number };
 type Done = { first: string; host: string; at: string; guests: string[]; held?: boolean };
@@ -33,7 +38,11 @@ export type FlowApi = {
   redeemInvite(code: string): Promise<Invite | null>;
   // held: the watchlist matched, so the visit waits for reception instead of going straight in.
   checkIn(input: CheckInInput): Promise<{ error: string } | { hostName: string | null; at: string; held?: boolean }>;
+  // The visitor agreement (NDA / safety rules) to accept before the photo; "" when there is none.
+  agreement(): Promise<string>;
   findOpen?(q: string): Promise<OpenVisit[]>;
+  // Desk only: the last visit for this mobile number, to fill in the form (not on the public phone flow).
+  returning?(mobile: string): Promise<Returning | null>;
   signOut?(visitId: string): Promise<boolean>;
 };
 
@@ -60,14 +69,25 @@ const deskApi: FlowApi = {
       .rpc("kiosk_check_in", {
         p_visitor_name: i.name, p_company: i.company, p_mobile: i.mobile, p_purpose: i.purpose,
         p_host_id: i.hostId, p_guests: i.guests, p_photo_path: path, p_invite_id: i.inviteId,
+        p_vehicle: i.vehicle, p_carrying: i.carrying, p_agreed: i.agreed,
       })
       .single<{ visit_id: string; checked_in_at: string; host_name: string | null; held: boolean }>();
     if (error || !data) {
-      return { error: /invite/.test(error?.message ?? "") ? "That invite has already been used. Please ask at reception." : "Something went wrong checking you in. Please ask at reception." };
+      return { error: /invite/.test(error?.message ?? "") ? "That invite has already been used. Please ask at reception."
+        : /agreement/.test(error?.message ?? "") ? "The visitor agreement has changed. Please go back and accept it again."
+        : "Something went wrong checking you in. Please ask at reception." };
     }
     if (data.held) return { hostName: data.host_name, at: data.checked_in_at, held: true }; // host is told once reception confirms
     notifyDeskCheckIn(data.visit_id).catch(() => {}); // a failed email shows in the lobby with Resend
     return { hostName: data.host_name, at: data.checked_in_at };
+  },
+  async agreement() {
+    const { data } = await supabase.from("settings").select("agreement").maybeSingle<{ agreement: string }>();
+    return data?.agreement.trim() ?? "";
+  },
+  async returning(mobile) {
+    const { data } = await supabase.rpc("returning_visitor", { p_mobile: mobile }).maybeSingle<Returning>();
+    return data;
   },
   async findOpen(q) {
     const { data } = await supabase.rpc("kiosk_find_open_visits", { q });
@@ -103,11 +123,37 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
   const [done, setDone] = useState<Done | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [welcome, setWelcome] = useState("");
+  const looked = useRef("");
+  const [vehicle, setVehicle] = useState("");
+  const [carrying, setCarrying] = useState("");
+  const [agreement, setAgreement] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  // The phone page builds a new api object every render, so the loader is pinned once.
+  const loadAgreement = useRef(api.agreement);
+  useEffect(() => { loadAgreement.current().then(setAgreement).catch(() => {}); }, []);
+
+  // A full mobile number fills in what's still empty from their last visit, host included.
+  async function onMobile(m: string) {
+    setMobile(m);
+    const key = m.replace(/\D/g, "").slice(-10);
+    if (!api.returning || key.length < 10 || key === looked.current) return;
+    looked.current = key;
+    const r = await api.returning(m).catch(() => null);
+    if (!r) return;
+    setName((n) => n || r.visitor_name);
+    setCompany((c) => c || (r.company ?? ""));
+    if (r.host_id) setHost((h) => h ?? { id: r.host_id, full_name: r.host_name ?? "", department: r.host_department });
+    setWelcome(`Welcome back, ${r.visitor_name.split(/\s+/)[0]}!`);
+  }
 
   function reset() {
     setStep("welcome");
     setName(""); setCompany(""); setMobile(""); setPurpose("Meeting"); setInviteId(null);
     setGuests([]); setHost(null); setPhoto(null); setDone(null); setError(""); setBusy(false);
+    setWelcome(""); looked.current = "";
+    setVehicle(""); setCarrying(""); setAgreed(false);
+    loadAgreement.current().then(setAgreement).catch(() => {}); // pick up an edited agreement
   }
 
   // Desk only: back to the start after a minute of no touch, so the next visitor never sees someone's details.
@@ -140,7 +186,7 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
     setBusy(true);
     setError("");
     const named = guests.map((g) => g.trim());
-    const r = await api.checkIn({ name, company, mobile, purpose, hostId: host.id, guests: named, photo, inviteId });
+    const r = await api.checkIn({ name, company, mobile, purpose, hostId: host.id, guests: named, photo, inviteId, vehicle, carrying, agreed });
     if ("error" in r) {
       setError(r.error);
       setBusy(false);
@@ -152,11 +198,25 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
     setStep("done");
   }
 
-  const steps: Partial<Record<Step, number>> = inviteId ? { guests: 1, photo: 2 } : { details: 1, host: 2, photo: 3 };
-  const total = inviteId ? 2 : 3;
+  // The agreement step only appears when admins have set one.
+  const order: Step[] = [...(inviteId ? ["guests"] : ["details", "host"]) as Step[], ...(agreement ? ["agree"] as Step[] : []), "photo"];
+  const steps: Partial<Record<Step, number>> = Object.fromEntries(order.map((s, i) => [s, i + 1]));
+  const total = order.length;
+  const toNext = (from: Step) => setStep(order[order.indexOf(from) + 1]);
   const back: Partial<Record<Step, Step>> = {
-    invite: "welcome", guests: "invite", details: "welcome", host: "details", photo: inviteId ? "guests" : "host", leave: "welcome",
+    invite: "welcome", guests: "invite", details: "welcome", leave: "welcome",
+    ...Object.fromEntries(order.slice(1).map((s, i) => [s, order[i]])),
   };
+  const gateFields = (
+    <>
+      <Field label="Vehicle number" optional>
+        <input className="input uppercase" maxLength={20} autoCapitalize="characters" placeholder="e.g. MH 12 AB 1234" value={vehicle} onChange={(e) => setVehicle(e.target.value)} />
+      </Field>
+      <Field label="Carrying anything in?" optional>
+        <input className="input" maxLength={200} placeholder="e.g. laptop, tools, samples" value={carrying} onChange={(e) => setCarrying(e.target.value)} />
+      </Field>
+    </>
+  );
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col p-6">
@@ -187,10 +247,11 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
       {step === "invite" && <InviteStep api={api} initialCode={initialCode} onFound={applyInvite} scan={desk} />}
 
       {step === "guests" && (
-        <form className="flex flex-1 flex-col" onSubmit={(e) => { e.preventDefault(); setStep("photo"); }}>
+        <form className="flex flex-1 flex-col" onSubmit={(e) => { e.preventDefault(); toNext("guests"); }}>
           <h2 className="h-display mt-6 mb-2 text-[29px]">Anyone with you today?</h2>
           <p className="text-[15.5px] text-ink-2">{guests.length ? `${host?.full_name} is expecting these people. Change it if needed.` : "Add anyone who came with you."}</p>
           <div className="mt-4"><Guests guests={guests} setGuests={setGuests} /></div>
+          {gateFields}
           <div className="flex-1" />
           <button className="btn mt-6 w-full">Continue</button>
         </form>
@@ -199,16 +260,19 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
       {step === "details" && (
         <form className="flex flex-1 flex-col" onSubmit={(e) => { e.preventDefault(); setStep("host"); }}>
           <h2 className="h-display mt-6 mb-2 text-[29px]">Tell us about you</h2>
+          {/* First, so a returning visitor's details fill in as they type it. */}
+          <Field label="Mobile number" optional>
+            <input className="input" type="tel" maxLength={30} autoComplete="tel" value={mobile} onChange={(e) => onMobile(e.target.value)} />
+          </Field>
+          {welcome && <p role="status" className="-mt-1 mb-2 text-[15px] font-semibold text-brand">{welcome}</p>}
           <Field label="Full name" required>
             <input className="input" required maxLength={120} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Company">
             <input className="input" maxLength={120} autoComplete="organization" value={company} onChange={(e) => setCompany(e.target.value)} />
           </Field>
-          <Field label="Mobile number" optional>
-            <input className="input" type="tel" maxLength={30} autoComplete="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} />
-          </Field>
           <Field label="People with you"><Guests guests={guests} setGuests={setGuests} /></Field>
+          {gateFields}
           <Field label="Purpose of visit">
             <div className="flex flex-wrap gap-2">
               {PURPOSES.map((p) => (
@@ -221,7 +285,23 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
         </form>
       )}
 
-      {step === "host" && <HostStep api={api} host={host} setHost={setHost} onNext={() => setStep("photo")} />}
+      {step === "host" && <HostStep api={api} host={host} setHost={setHost} onNext={() => toNext("host")} />}
+
+      {step === "agree" && (
+        <form className="flex flex-1 flex-col" onSubmit={(e) => { e.preventDefault(); if (agreed) toNext("agree"); }}>
+          <h2 className="h-display mt-6 mb-2 text-[29px]">Before you go in</h2>
+          <p className="text-[15.5px] text-ink-2">Please read and accept this.</p>
+          <div tabIndex={0} className="mt-4 max-h-[45dvh] overflow-y-auto rounded-2xl border-[1.5px] border-line bg-surface p-4 text-[15px] leading-relaxed whitespace-pre-wrap">
+            {agreement}
+          </div>
+          <label className="mt-4 flex min-h-11 items-center gap-3 text-[15.5px] font-medium">
+            <input type="checkbox" required className="size-6 accent-[var(--color-brand)]" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+            I have read and agree
+          </label>
+          <div className="flex-1" />
+          <button className="btn mt-6 w-full" disabled={!agreed}>Continue</button>
+        </form>
+      )}
 
       {step === "photo" && (
         <PhotoStep photo={photo} setPhoto={setPhoto} busy={busy} error={error} onSubmit={checkIn} />
@@ -238,7 +318,7 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
           title={`You're checked in, ${done.first}.`}
           lead={done.host === "Reception"
             ? "Please take a seat. Reception will be with you shortly."
-            : `We've let ${done.host} know. Please take a seat; they'll come to collect you.`}
+            : `We've asked ${done.host} to approve your visit. Please take a seat; reception will let you in once they do.`}
           onDone={reset}
         >
           <div className="mt-5 rounded-2xl border-[1.5px] border-line bg-surface px-4 py-1 text-sm">
@@ -249,7 +329,7 @@ export function CheckInFlow({ api, desk, initialCode = "", onCheckedIn }: {
         </Finished>
       )}
 
-      {step === "leave" && api.findOpen && api.signOut && <LeaveStep api={api} onLeft={() => setStep("left")} />}
+      {step === "leave" && api.findOpen && api.signOut && <LeaveStep api={api} scan={desk} onLeft={() => setStep("left")} />}
 
       {step === "left" && (
         <Finished title="You're signed out." lead="Thanks for visiting Novelty Labels. Have a good day." onDone={reset} />
@@ -394,7 +474,8 @@ function HostStep({ api, host, setHost, onNext }: { api: FlowApi; host: Host | n
     return () => clearTimeout(t);
   }, [q, api]);
   const reception: Host = { id: null, full_name: "Reception", department: null };
-  const shown = q.trim() ? hits : [];
+  // A returning visitor's last host shows ready-picked until they search.
+  const shown = q.trim() ? hits : host?.id ? [host] : [];
 
   return (
     <div className="flex flex-1 flex-col">
@@ -459,8 +540,9 @@ function PhotoStep({ photo, setPhoto, busy, error, onSubmit }: { photo: Blob | n
   );
 }
 
-function LeaveStep({ api, onLeft }: { api: FlowApi; onLeft: () => void }) {
+function LeaveStep({ api, onLeft, scan }: { api: FlowApi; onLeft: () => void; scan?: boolean }) {
   const [q, setQ] = useState("");
+  const [scanning, setScanning] = useState(false);
   const [hits, setHits] = useState<OpenVisit[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -475,9 +557,22 @@ function LeaveStep({ api, onLeft }: { api: FlowApi; onLeft: () => void }) {
     onLeft();
   }
 
+  if (scanning) {
+    return (
+      <QrScanner parse={badgeVisitFromQr} onClose={() => setScanning(false)}
+        onCode={(id) => { setScanning(false); signOut(id); }}
+        copy={{ title: "Scan your badge", lead: "Hold the QR code on your visitor badge up to the camera.", wrong: "That QR code isn't a visitor badge.", close: "Find my name instead" }} />
+    );
+  }
+
   return (
     <div className="flex flex-1 flex-col">
       <h2 className="h-display mt-6 mb-2 text-[29px]">Signing out</h2>
+      {scan && (
+        <button className="btn-ghost mb-4 w-full" onClick={() => { setError(""); setScanning(true); }}>
+          <ScanLine className="size-5" /> Scan your badge
+        </button>
+      )}
       <p className="mb-4 text-[15.5px] text-ink-2">Type the first few letters of your name.</p>
       <label className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-3.5 size-5 -translate-y-1/2 text-muted" />
@@ -544,15 +639,19 @@ export function Row({ k, v }: { k: string; v: string }) {
   );
 }
 
-// Phone cameras give multi-MB photos (sometimes not JPEG); shrink to a 900px JPEG before upload.
+// Phone cameras give multi-MB photos (sometimes not JPEG); shrink to a 640px JPEG before upload.
+// Usually ~40-60 KB; quality steps down until it fits PHOTO_MAX_BYTES (the bucket's limit too).
+export const PHOTO_MAX_BYTES = 200 * 1024;
 export async function toJpeg(file: File): Promise<Blob> {
   const img = await createImageBitmap(file);
-  const scale = Math.min(1, 900 / Math.max(img.width, img.height));
+  const scale = Math.min(1, 640 / Math.max(img.width, img.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(img.width * scale);
   canvas.height = Math.round(img.height * scale);
   canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("encode failed"))), "image/jpeg", 0.85),
-  );
+  const encode = (q: number) => new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("encode failed"))), "image/jpeg", q));
+  let q = 0.8, blob = await encode(q);
+  while (blob.size > PHOTO_MAX_BYTES && q > 0.35) blob = await encode((q -= 0.15));
+  return blob;
 }

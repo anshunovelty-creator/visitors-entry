@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Clock, LogOut, TriangleAlert } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { CheckInFlow, Finished, Row, type FlowApi, type Invite } from "../kiosk/kiosk-flow";
-import { phoneCheckIn, phoneSignOut, redeemInvite, searchHosts, startPhotoUpload, visitStatus, type PhoneVisit } from "./actions";
+import { phoneCheckIn, phoneSignOut, redeemInvite, searchHosts, startPhotoUpload, visitorAgreement, visitStatus, type PhoneVisit } from "./actions";
 
 const KEY = "nl-visit-token";
 const POLL_MS = 4_000;
@@ -24,6 +24,7 @@ export function PhoneFlow() {
   const api: FlowApi = {
     searchHosts,
     redeemInvite: (c) => redeemInvite(c) as Promise<Invite | null>,
+    agreement: visitorAgreement,
     async checkIn(i) {
       const up = await startPhotoUpload();
       if ("error" in up) return up;
@@ -33,6 +34,7 @@ export function PhoneFlow() {
       const r = await phoneCheckIn({
         name: i.name, company: i.company, mobile: i.mobile, purpose: i.purpose,
         hostId: i.hostId, guests: i.guests, inviteId: i.inviteId, photoPath: up.path,
+        vehicle: i.vehicle, carrying: i.carrying, agreed: i.agreed,
       });
       if ("error" in r) return r;
       pending.current = r.token;
@@ -88,11 +90,15 @@ function Status({ token, onNew }: { token: string; onNew: () => void }) {
   if (v.status === "checked_in") {
     return (
       <main className={main}>
-        <Finished title={`You're all set, ${v.first}.`}
+        <Finished
+          icon={v.host === "Reception" || v.hostResponse === "coming" ? undefined
+            : v.hostResponse === "unavailable" ? <TriangleAlert className="size-10" /> : <Clock className="size-10" />}
+          title={v.host === "Reception" || v.hostResponse === "coming" ? `You're all set, ${v.first}.`
+            : v.hostResponse === "unavailable" ? "Please speak to reception." : `Please wait, ${v.first}.`}
           lead={v.host === "Reception" ? "Please take a seat. Reception will be with you shortly."
-            : v.hostResponse === "coming" ? `${v.host} is on their way down to meet you.`
-            : v.hostResponse === "unavailable" ? `${v.host} isn't available right now. Reception will look after you.`
-            : `${v.host} knows you're here. Please take a seat; they'll come to collect you.`}>
+            : v.hostResponse === "coming" ? `${v.host} has approved your visit. You can go in.`
+            : v.hostResponse === "unavailable" ? `${v.host} can't see you right now. Reception will help you from here.`
+            : `We've asked ${v.host} to approve your visit. Please take a seat at reception; this page updates by itself.`}>
           <p className="mt-5 text-[14px] text-muted">Keep this page. When you leave, sign out here.</p>
         </Finished>
         <button className="btn w-full" disabled={busy} onClick={async () => {

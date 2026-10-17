@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, signedInUser } from "@/lib/supabase/server";
 import { PasswordForm } from "./form";
 
 export default function AccountPage() {
@@ -19,7 +19,7 @@ export default function AccountPage() {
 // Not via getStaff: that sends anyone who must change their password here, which would loop.
 async function Account() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await signedInUser(supabase);
   if (!user) redirect("/login");
   const { data: me } = await supabase.from("staff").select("full_name, must_change_password").eq("id", user.id).eq("active", true).maybeSingle();
   if (!me) redirect("/login");

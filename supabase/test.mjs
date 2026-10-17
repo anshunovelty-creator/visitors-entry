@@ -229,6 +229,15 @@ assert.deepEqual([wv.source, wv.status, wv.host_id, wv.checked_in_by, wv.photo_p
 const [{ v: noPhoto }] = await staffWalkIn(reception);
 assert.ok(noPhoto, "photo is optional");
 
+// ---- returning visitors (Walker came twice above, mobile '98765 43210', visiting Rahul)
+const back = (uid, m) => as(uid, "select * from public.returning_visitor($1)", [m]);
+const [wb] = await back(reception, "+91 98765-43210");
+assert.deepEqual([wb.visitor_name, wb.company, wb.host_id, wb.host_name, wb.visits], ["Walker", "Acme", rahul, "Rahul Mehta", 2]);
+assert.equal((await back(device, "9876543210")).length, 1, "the desk device can look up");
+assert.equal((await back(reception, "43210")).length, 0, "needs a full number");
+await rejects(back(rahul, "9876543210"), /not allowed/);
+await rejects(back(null, "9876543210"), /permission denied/);
+
 // ---- rate limits (server code only)
 const limit = async (key) => (await db.query("select public.rate_limit($1, 3, 600) as ok", [key])).rows[0].ok;
 assert.deepEqual([await limit("t:a"), await limit("t:a"), await limit("t:a"), await limit("t:a")], [true, true, true, false]);
@@ -236,6 +245,50 @@ assert.equal(await limit("t:b"), true, "keys count separately");
 await rejects(as(null, "select public.rate_limit('t:x', 99, 600)"), /permission denied/);
 await rejects(as(rahul, "select public.rate_limit('t:x', 99, 600)"), /permission denied/);
 assert.equal((await as(rahul, "select * from public.rate_limits")).length, 0, "staff can't read counters");
+
+// ---- end-of-day sign-out (server code only)
+const visitAt = async (when) => (await db.query(
+  "insert into public.visits (visitor_name, source, status, checked_in_at) values ('Late Larry', 'reception', 'checked_in', $1) returning id",
+  [when])).rows[0].id;
+const stayed = await visitAt(new Date(Date.now() - 2 * 86_400_000).toISOString());
+const todays = await visitAt(new Date().toISOString());
+await db.query("insert into public.visit_guests (visit_id, full_name) values ($1, 'Plus One')", [stayed]);
+await rejects(as(reception, "select public.auto_sign_out()"), /permission denied/);
+await db.query("select public.auto_sign_out()");
+const closed = (await db.query("select id, status, auto_signed_out, checked_out_at is not null as out from public.visits where id in ($1, $2)", [stayed, todays])).rows;
+assert.deepEqual(closed.find((v) => v.id === stayed), { id: stayed, status: "checked_out", auto_signed_out: true, out: true });
+assert.deepEqual(closed.find((v) => v.id === todays), { id: todays, status: "checked_in", auto_signed_out: false, out: false }, "today's visitors stay");
+assert.equal((await db.query("select count(*)::int as n from public.visit_guests where visit_id = $1 and checked_out_at is null", [stayed])).rows[0].n, 0, "guests too");
+
+// ---- push subscriptions (server code only)
+await db.query("insert into public.push_subscriptions (endpoint, staff_id, p256dh, auth) values ('https://push.example/1', $1, 'k', 'a')", [rahul]);
+await rejects(as(rahul, "select * from public.push_subscriptions"), /permission denied/);
+await rejects(as(rahul, "insert into public.push_subscriptions (endpoint, staff_id, p256dh, auth) values ('https://push.example/2', $1, 'k', 'a')", [rahul]), /permission denied/);
+await rejects(db.query("insert into public.push_subscriptions (endpoint, staff_id, p256dh, auth) values ('http://x', $1, 'k', 'a')", [rahul]), /check/);
+
+// ---- gate details and the visitor agreement
+assert.equal((await as(reception, "update public.settings set agreement = 'x' returning id")).length, 0, "reception can't change settings");
+await as(admin, "update public.settings set agreement = 'Keep it confidential.'");
+const [{ agreement_updated_at: ver }] = await as(device, "select agreement_updated_at from public.settings");
+assert.ok(ver, "editing the agreement bumps its version; desk devices can read it");
+const gate = (agreed) => as(device, "select * from public.kiosk_check_in('Gita Gate', null, null, null, $1, '{}', $2, null, ' mh 12  ab 1234 ', 'Laptop', $3)",
+  [rahul, "desk/2b6c1f3e-8a2b-4c3d-9e4f-5a6b7c8d9e0f.jpg", agreed]);
+await rejects(gate(false), /agreement not accepted/);
+const [gv] = await gate(true);
+const [gr] = (await db.query("select vehicle_no, carrying, agreed_at is not null as agreed, agreement_version = $2 as current from public.visits where id = $1", [gv.visit_id, ver])).rows;
+assert.deepEqual(gr, { vehicle_no: "MH 12 AB 1234", carrying: "Laptop", agreed: true, current: true });
+const [{ v: walkNoAgree }] = await as(reception, "select public.staff_check_in('Wanda', null, null, null, null, '{}', null) as v");
+assert.ok(walkNoAgree, "reception isn't blocked by the agreement");
+await as(admin, "update public.settings set agreement = ''");
+
+// ---- deliveries
+await rejects(as(rahul, "insert into public.deliveries (recipient_id, carrier) values ($1, 'DHL')", [rahul]), /row-level security/, "hosts can't log parcels");
+const [{ id: parcel }] = await as(reception, "insert into public.deliveries (recipient_id, carrier, description) values ($1, 'DHL', 'Box') returning id", [rahul]);
+assert.equal((await as(rahul, "select id from public.deliveries")).length, 1, "the recipient sees it");
+assert.equal((await as(neha, "select id from public.deliveries")).length, 0, "others don't");
+assert.equal((await as(neha, "select public.collect_delivery($1) as ok", [parcel]))[0].ok, false, "only the recipient or reception collects");
+assert.equal((await as(rahul, "select public.collect_delivery($1) as ok", [parcel]))[0].ok, true);
+assert.equal((await as(rahul, "select public.collect_delivery($1) as ok", [parcel]))[0].ok, false, "once");
 
 // ---- helpers
 const short = async (n) => (await db.query("select public.short_name($1) as s", [n])).rows[0].s;

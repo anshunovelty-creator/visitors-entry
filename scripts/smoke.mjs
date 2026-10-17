@@ -136,6 +136,22 @@ try {
   created.visits.push(wv);
   assert.equal((await a.from("visits").select("source").eq("id", wv).single()).data?.source, "reception", "host sees their walk-in");
 
+  // ---- returning visitor: the same mobile finds the last visit (reception and desk device only)
+  const mobile = `+91 9${String(Date.now()).slice(-9)}`;
+  const { data: rv } = await r.rpc("staff_check_in", { ...walkIn, p_mobile: mobile, p_photo_path: null });
+  created.visits.push(rv);
+  const digits = mobile.replace(/\D/g, "");
+  assert.equal((await r.rpc("returning_visitor", { p_mobile: digits }).maybeSingle()).data?.visitor_name, `Walk ${tag}`, "reception finds them");
+  assert.equal((await k.rpc("returning_visitor", { p_mobile: digits }).maybeSingle()).data?.host_id, hostA.id, "desk gets the last host");
+  assert.ok((await a.rpc("returning_visitor", { p_mobile: digits })).error, "hosts can't look visitors up");
+
+  // ---- deliveries: reception logs, the recipient sees and collects (cascade-deleted with the test staff)
+  const { data: parcel, error: ep } = await r.from("deliveries").insert({ recipient_id: hostA.id, carrier: "Smoke" }).select("id").single();
+  assert.ifError(ep);
+  assert.equal((await a.from("deliveries").select("id").eq("id", parcel.id)).data?.length, 1, "recipient sees their parcel");
+  assert.equal((await b.from("deliveries").select("id").eq("id", parcel.id)).data?.length, 0, "others don't");
+  assert.equal((await a.rpc("collect_delivery", { p_id: parcel.id })).data, true, "recipient collects it");
+
   // ---- own phone: signed upload, arriving, reception confirms (as app/visit + confirmArrival do)
   const phonePath = `phone/${randomUUID()}.jpg`;
   const { data: signedUp } = await admin.storage.from("visit-photos").createSignedUploadUrl(phonePath);

@@ -3,16 +3,36 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { Camera } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { toJpeg } from "@/app/kiosk/kiosk-flow";
+import { toJpeg, type Returning } from "@/app/kiosk/kiosk-flow";
 import { checkInWalkIn } from "../actions";
 
 type Host = { id: string; full_name: string; department: string | null };
 
-export function WalkInForm({ hosts }: { hosts: Host[] }) {
+export function WalkInForm({ hosts, agreement }: { hosts: Host[]; agreement: string }) {
   const [photo, setPhoto] = useState<Blob | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const url = useMemo(() => (photo ? URL.createObjectURL(photo) : ""), [photo]);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  // A full mobile number fills in what's still empty from their last visit, host included.
+  const form = useRef<HTMLFormElement>(null);
+  const looked = useRef("");
+  const [welcome, setWelcome] = useState("");
+  async function onMobile(m: string) {
+    const key = m.replace(/\D/g, "").slice(-10);
+    if (key.length < 10 || key === looked.current) return;
+    looked.current = key;
+    const { data: r } = await createClient().rpc("returning_visitor", { p_mobile: m }).maybeSingle<Returning>();
+    if (!r || !form.current) return;
+    const fill = (name: string, value: string | null) => {
+      const el = form.current?.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+      if (el && !el.value && value) el.value = value;
+    };
+    fill("visitor_name", r.visitor_name);
+    fill("company", r.company);
+    fill("host_id", r.host_id);
+    setWelcome(`Returning visitor: ${r.visits} earlier visit${r.visits === 1 ? "" : "s"}${r.host_name ? `, last with ${r.host_name}` : ""}.`);
+  }
 
   const [error, action, pending] = useActionState(async (_prev: string, form: FormData) => {
     if (photo) {
@@ -25,10 +45,12 @@ export function WalkInForm({ hosts }: { hosts: Host[] }) {
   }, "");
 
   return (
-    <form action={action} className="grid gap-3 p-4 sm:grid-cols-2">
-      <label><span className="label">Visitor name</span><input name="visitor_name" required maxLength={120} className="input" autoFocus /></label>
+    <form ref={form} action={action} className="grid gap-3 p-4 sm:grid-cols-2">
+      {/* First, so a returning visitor's details fill in. */}
+      <label><span className="label">Mobile</span><input name="mobile" type="tel" maxLength={30} className="input" placeholder="Optional" autoFocus onChange={(e) => onMobile(e.target.value)} /></label>
+      <label><span className="label">Visitor name</span><input name="visitor_name" required maxLength={120} className="input" /></label>
+      {welcome && <p role="status" className="text-[13.5px] font-semibold text-brand sm:col-span-2">{welcome}</p>}
       <label><span className="label">Company</span><input name="company" maxLength={120} className="input" placeholder="Optional" /></label>
-      <label><span className="label">Mobile</span><input name="mobile" type="tel" maxLength={30} className="input" placeholder="Optional" /></label>
       <label>
         <span className="label">Purpose</span>
         <select name="purpose" defaultValue="Meeting" className="input">
@@ -42,6 +64,8 @@ export function WalkInForm({ hosts }: { hosts: Host[] }) {
           {hosts.map((h) => <option key={h.id} value={h.id}>{h.full_name}{h.department ? ` · ${h.department}` : ""}</option>)}
         </select>
       </label>
+      <label><span className="label">Vehicle number</span><input name="vehicle" maxLength={20} className="input uppercase" placeholder="Optional" /></label>
+      <label><span className="label">Carrying in</span><input name="carrying" maxLength={200} className="input" placeholder="Optional: laptop, tools…" /></label>
       <label><span className="label">Coming with them <span className="font-normal text-muted">one name per line</span></span>
         <textarea name="guests" rows={2} className="input h-auto min-h-[52px] py-3" />
       </label>
@@ -62,6 +86,18 @@ export function WalkInForm({ hosts }: { hosts: Host[] }) {
           onChange={async (e) => { const f = e.target.files?.[0]; if (f) setPhoto(await toJpeg(f)); e.target.value = ""; }} />
       </div>
 
+      {agreement && (
+        <details className="sm:col-span-2">
+          <summary className="cursor-pointer text-[13.5px] font-semibold text-brand">Visitor agreement</summary>
+          <p className="mt-2 max-h-48 overflow-y-auto rounded-xl bg-tint/50 p-3 text-[13.5px] whitespace-pre-wrap">{agreement}</p>
+        </details>
+      )}
+      {agreement && (
+        <label className="flex min-h-11 items-center gap-2.5 text-[14px] sm:col-span-2">
+          <input type="checkbox" name="agreed" className="size-5 accent-[var(--color-brand)]" />
+          The visitor has read and accepted the agreement
+        </label>
+      )}
       {error && <p role="alert" className="text-sm font-medium text-danger sm:col-span-2">{error}</p>}
       <button className="btn sm:col-span-2" disabled={pending}>{pending ? "Checking in…" : "Check in"}</button>
     </form>

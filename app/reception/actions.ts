@@ -2,9 +2,10 @@
 
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient, signedInUser } from "@/lib/supabase/server";
+import { isPushEndpoint } from "@/lib/push";
 import { notifyHost } from "@/lib/email";
-import { arrivingCutoff } from "./staff";
+import { arrivingCutoff, REMIND_MINUTES } from "./staff";
 
 export async function signOutVisit(visitId: string, guestId?: string) {
   const supabase = await createClient();
@@ -18,7 +19,7 @@ export async function signOutVisit(visitId: string, guestId?: string) {
 // RLS limits these updates to reception and admins; a host's update simply matches nothing.
 export async function confirmArrival(visitId: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await signedInUser(supabase);
   const { data } = await supabase.from("visits")
     .update({ status: "checked_in", checked_in_at: new Date().toISOString(), checked_in_by: user?.id })
     .eq("id", visitId).eq("status", "arriving")
@@ -54,6 +55,7 @@ export async function checkInWalkIn(form: FormData): Promise<string> {
   const { data: visitId, error } = await supabase.rpc("staff_check_in", {
     p_visitor_name: name, p_company: text("company", 120), p_mobile: text("mobile", 30), p_purpose: text("purpose", 60),
     p_host_id: text("host_id", 36), p_guests: guests, p_photo_path: text("photo_path", 60),
+    p_vehicle: text("vehicle", 20), p_carrying: text("carrying", 200), p_agreed: form.get("agreed") === "on",
   });
   if (error) return /reception only/.test(error.message) ? "Only reception can check visitors in." : "Could not check them in. Try again.";
   await notifyHost(visitId as string);
@@ -77,8 +79,48 @@ export async function hostRespond(visitId: string, response: "coming" | "unavail
   refresh();
 }
 
+// Reception lets a visitor in without the host's approval. RLS limits visit updates to reception
+// and admins (a host's call matches nothing); the audit log records who did it.
+export async function letIn(visitId: string) {
+  const supabase = await createClient();
+  const { data } = await supabase.from("visits")
+    .update({ host_response: "coming", host_responded_at: new Date().toISOString() })
+    .eq("id", visitId).eq("status", "checked_in").select("id").maybeSingle();
+  if (!data) throw new Error("Only reception can let a visitor in, and only while they're here.");
+  refresh();
+}
+
 export async function signOutStaff() {
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/login");
+}
+
+// Reception's screen calls this every minute (HostReminders). A visitor left waiting REMIND_MINUTES
+// gets their host one reminder: the update claims it (RLS: reception only), so two open screens
+// can't both send it. Past an hour a reminder is pointless; reception already sees "No answer".
+// ponytail: only runs while a reception screen is open; move to pg_cron + pg_net if that's not enough.
+export async function remindHosts() {
+  const supabase = await createClient();
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  const { data } = await supabase.from("visits")
+    .update({ host_reminded_at: new Date().toISOString() })
+    .eq("status", "checked_in").not("host_id", "is", null).is("host_response", null).is("host_reminded_at", null)
+    .lt("checked_in_at", ago(REMIND_MINUTES)).gt("checked_in_at", ago(60))
+    .select("id");
+  for (const v of data ?? []) await notifyHost(v.id, { reminder: true });
+}
+
+// Saves this browser's push subscription for the signed-in staff member (see lib/push.ts). Upserted
+// by endpoint, so a shared device alerts only whoever signed in on it last.
+export async function savePush(sub: { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } }) {
+  const supabase = await createClient();
+  const user = await signedInUser(supabase);
+  const endpoint = String(sub?.endpoint ?? "");
+  const p256dh = String(sub?.keys?.p256dh ?? "");
+  const auth = String(sub?.keys?.auth ?? "");
+  if (!user || !isPushEndpoint(endpoint) || endpoint.length > 1000 || !p256dh || p256dh.length > 200 || !auth || auth.length > 100) return false;
+  const { error } = await createAdminClient().from("push_subscriptions")
+    .upsert({ endpoint, staff_id: user.id, p256dh, auth }, { onConflict: "endpoint" });
+  return !error;
 }

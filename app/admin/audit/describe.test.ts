@@ -11,7 +11,7 @@ test("turns audit rows into sentences", () => {
   assert.equal(describe({ entity: "visits", action: "UPDATE", changes: { _label: "Priya", status: ["arriving", "checked_in"] } }),
     "Priya: arriving → checked in");
   assert.equal(describe({ entity: "visits", action: "UPDATE", changes: { _label: "Priya", host_response: [null, "coming"] } }),
-    "Host answered for Priya: coming down");
+    "Priya: visit approved");
   assert.equal(describe({ entity: "staff", action: "UPDATE", changes: { _label: "Rahul", active: [true, false] } }), "Deactivated Rahul");
   assert.equal(describe({ entity: "staff", action: "password_reset", changes: { _label: "Rahul" } }), "Reset the password for Rahul");
   assert.equal(describe({ entity: "kiosk_devices", action: "UPDATE", changes: { _label: "Front desk", revoked_at: [null, "2026-10-09T10:00:00Z"] } }),
@@ -21,4 +21,10 @@ test("turns audit rows into sentences", () => {
 test("anything unrecognised still says what changed", () => {
   assert.equal(describe({ entity: "visits", action: "UPDATE", changes: { _label: "P", purpose: ["a", "b"] } }), "visits update: purpose");
   assert.equal(describe({ entity: "something_new", action: "DELETE", changes: null }), "something new delete");
+});
+
+test("deliveries and settings", () => {
+  assert.equal(describe({ entity: "deliveries", action: "INSERT", changes: { carrier: "DTDC" } }), "Parcel logged (DTDC)");
+  assert.equal(describe({ entity: "deliveries", action: "UPDATE", changes: { collected_at: [null, "2026-10-17T10:00:00Z"] } }), "Parcel collected");
+  assert.equal(describe({ entity: "settings", action: "UPDATE", changes: { agreement: ["", "Rules"] } }), "Visitor agreement changed");
 });
