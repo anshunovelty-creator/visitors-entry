@@ -24,9 +24,9 @@ export async function confirmArrival(visitId: string) {
     .update({ status: "checked_in", checked_in_at: new Date().toISOString(), checked_in_by: user?.id })
     .eq("id", visitId).eq("status", "arriving")
     .gte("arrived_at", arrivingCutoff())
-    .select("id").maybeSingle();
+    .select("id, host_email_sent_at").maybeSingle();
   if (!data) throw new Error("That arrival has expired or was already handled.");
-  await notifyHost(visitId);
+  if (!data.host_email_sent_at) await notifyHost(visitId); // usually already told on arrival
   refresh();
 }
 

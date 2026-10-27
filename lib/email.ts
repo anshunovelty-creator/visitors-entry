@@ -78,18 +78,22 @@ async function alertHost(visitId: string, origin: string, reminder: boolean) {
   const admin = createAdminClient();
   const { data: v } = await admin
     .from("visits")
-    .select("visitor_name, company, purpose, checked_in_at, status, host_id, host:staff!visits_host_id_fkey(full_name, email, active), visit_guests(full_name)")
+    .select("visitor_name, company, purpose, arrived_at, checked_in_at, status, host_id, host_response, watchlist_id, host:staff!visits_host_id_fkey(full_name, email, active), visit_guests(full_name)")
     .eq("id", visitId)
     .maybeSingle();
   const host = v?.host as unknown as { full_name: string; email: string; active: boolean } | null;
-  if (!v || v.status !== "checked_in" || !host?.active) return; // "Reception" visits have no one to tell.
+  if (!v || !host?.active || v.host_response) return; // "Reception" visits have no one to tell.
+  // A phone arrival is told to the host straight away, before reception confirms the code,
+  // unless it matched the watchlist: reception sees those first.
+  const arriving = v.status === "arriving";
+  if (v.status !== "checked_in" && !(arriving && !v.watchlist_id)) return;
 
   const guests = (v.visit_guests as { full_name: string }[]).map((g) => g.full_name);
-  const at = new Date(v.checked_in_at!).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
+  const at = new Date(v.checked_in_at ?? v.arrived_at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
   const lines = [
     `Hi ${host.full_name.split(" ")[0]},`,
     "",
-    `${v.company ? `${v.visitor_name} (${v.company})` : v.visitor_name} checked in at reception at ${at} and is ${reminder ? "still " : ""}waiting for your approval to go in.`,
+    `${v.company ? `${v.visitor_name} (${v.company})` : v.visitor_name} ${arriving ? "arrived" : "checked in"} at reception at ${at} and is ${reminder ? "still " : ""}waiting for your approval to go in.`,
     ...(v.purpose ? [`Purpose: ${v.purpose}`] : []),
     ...(guests.length ? [`With them: ${guests.join(", ")}`] : []),
     "",

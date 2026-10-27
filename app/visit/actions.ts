@@ -2,6 +2,7 @@
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { headers } from "next/headers";
+import { notifyHost } from "@/lib/email";
 import { createAdminClient } from "@/lib/supabase/server";
 import { arrivingCutoff } from "../reception/staff";
 
@@ -91,7 +92,7 @@ export async function phoneCheckIn(i: PhoneCheckIn): Promise<{ token: string } |
   const origin = await originHash();
   if (await tooBusy(admin, origin)) return { error: "Too many check-ins from here. Please ask at reception." };
   const token = randomBytes(24).toString("base64url");
-  const { error } = await admin.rpc("create_visit", {
+  const { data, error } = await admin.rpc("create_visit", {
     p_source: "own_phone", p_device: null,
     p_visitor_name: String(i.name ?? ""), p_company: String(i.company ?? ""), p_mobile: String(i.mobile ?? ""),
     p_purpose: String(i.purpose ?? ""), p_host_id: i.inviteId ? null : i.hostId,
@@ -105,6 +106,9 @@ export async function phoneCheckIn(i: PhoneCheckIn): Promise<{ token: string } |
       : /agreement/.test(error.message) ? "The visitor agreement has changed. Please go back and accept it again."
       : "Something went wrong checking you in. Please ask at reception." };
   }
+  // The host hears now, not when reception confirms the code (watchlist matches wait; see alertHost).
+  const visitId = (data as { visit_id: string }[] | null)?.[0]?.visit_id;
+  if (visitId) await notifyHost(visitId);
   return { token };
 }
 
